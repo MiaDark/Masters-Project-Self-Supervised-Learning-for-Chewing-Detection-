@@ -1,0 +1,26 @@
+# Core scientific stack
+numpy
+pandas
+scipy
+scikit-learn
+
+# Deep learning (install the CUDA build that matches your machine; see README)
+torch
+
+# Experiment tracking
+mlflow
+
+# Data access
+boto3
+
+# Config + environment
+pyyaml
+python-dotenv
+
+# Utilities
+tqdm
+matplotlib
+
+# Dev tooling (optional but recommended)
+ruff
+pytest

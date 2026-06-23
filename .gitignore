@@ -1,0 +1,49 @@
+# ---- Data (never commit raw or processed data) ----
+data/raw/*
+data/interim/*
+data/processed/*
+!data/**/.gitkeep
+
+# ---- Secrets / credentials ----
+.env
+*.pem
+.aws/
+
+# ---- MLflow local store ----
+mlruns/
+mlartifacts/
+*.db
+
+# ---- Model checkpoints / large artifacts ----
+*.ckpt
+*.pt
+*.pth
+*.onnx
+checkpoints/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# ---- Notebooks ----
+.ipynb_checkpoints/
+
+# ---- Tooling / IDE ----
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.vscode/
+.idea/
+.DS_Store
+
+# ---- Logs / outputs ----
+logs/
+outputs/
+wandb/
