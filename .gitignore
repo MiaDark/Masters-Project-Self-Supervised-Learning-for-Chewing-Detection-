@@ -47,3 +47,7 @@ env/
 logs/
 outputs/
 wandb/
+
+
+# ---- Data ----
+data/
