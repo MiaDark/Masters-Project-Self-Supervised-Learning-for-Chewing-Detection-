@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Python dependencies declared in pyproject.toml / requirements.txt
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Keep the GitHub Actions versions current (and SHA-pinnable over time)
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
