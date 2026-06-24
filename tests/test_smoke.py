@@ -1,4 +1,3 @@
-"""Smoke tests — confirm the package wiring is intact."""
 
 from pathlib import Path
 
@@ -19,5 +18,14 @@ def test_data_config_loads():
     from chewing_ssl.utils.config import load_yaml
 
     cfg = load_yaml(Path("configs/data.yaml"))
+    assert "s3" in cfg
+    assert "paths" in cfg
+
+
+def test_data_config_loads_from_any_cwd(monkeypatch, tmp_path):
+    from chewing_ssl.utils.config import load_data_config
+
+    monkeypatch.chdir(tmp_path)
+    cfg = load_data_config()
     assert "s3" in cfg
     assert "paths" in cfg
