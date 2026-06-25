@@ -50,4 +50,7 @@ wandb/
 
 
 # ---- Data ----
-data/
+raw/
+interim/
+processed/
+reports/
