@@ -41,4 +41,4 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pytest tests -q --maxfail=1 --suppress-no-test-exit-code
+          python -m pytest tests -q --maxfail=1 || test $? -eq 5
