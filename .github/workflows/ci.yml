@@ -29,9 +29,9 @@ jobs:
 
       - name: Install project and dev dependencies
         run: |
-          pip install -e '.[dev]' || \
-          # Fallback: if no extras defined, install common dev/test deps explicitly:
-          pip install -r requirements.txt pytest ruff numpy pyyaml boto3
+          pip install -e .  || \
+          # Fallback: with extras defined:
+          pip install -e '.[dev]'
 
       - name: Lint / format (auto-format to avoid CI failing on formatting)
         run: |

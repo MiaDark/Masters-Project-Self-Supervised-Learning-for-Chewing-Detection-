@@ -19,6 +19,18 @@ target-version = "py310"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+dependencies = [
+    "numpy",
+    "pyyaml",
+    "python-dotenv",
+    "boto3",
+    "tqdm",
+    "mlflow",
+    "matplotlib",
+    "ruff",
+    "pytest"
+]
+
 [project.optional-dependencies]
 dev = [
     "ruff",
