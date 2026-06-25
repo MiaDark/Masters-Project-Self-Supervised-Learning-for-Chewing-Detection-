@@ -3,12 +3,12 @@ name: Security
 on:
   push:
     branches: [main]
-  pull_request:
   schedule:
-    - cron: "0 6 * * 1"   # weekly, Monday 06:00 UTC
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: security-${{ github.ref }}
@@ -47,6 +47,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # full history so gitleaks can scan past commits
-      - uses: gitleaks/gitleaks-action@v2
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
