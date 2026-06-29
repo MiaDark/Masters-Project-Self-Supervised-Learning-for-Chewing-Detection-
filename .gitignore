@@ -47,3 +47,10 @@ env/
 logs/
 outputs/
 wandb/
+
+
+# ---- Data ----
+raw/
+interim/
+processed/
+reports/

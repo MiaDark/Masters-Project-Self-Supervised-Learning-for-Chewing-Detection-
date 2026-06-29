@@ -1,0 +1,25 @@
+s3:
+  bucket: emteq-data
+  base_prefix: processed_datasets/ocosense/
+  include_extensions: [".csv"]
+
+paths:
+  raw: data/raw
+
+download:
+  skip_existing: true
+  dry_run: false
+
+datasets:
+
+  SIPMEatingStudy:
+    enabled: true
+    participants: "1-41"
+
+  Spectacle:
+    enabled: true
+    weeks: [week2]
+    participants: "0-32"
+
+  SussexEatingUK:
+    enabled: true
