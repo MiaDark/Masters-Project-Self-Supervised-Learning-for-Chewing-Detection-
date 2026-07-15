@@ -113,10 +113,64 @@ SPECTACLE_COLUMNS: dict[str, str] = {
     "chewing_rate": "chewing_rate",
 }
 
+DIVERSE_NORMATIVE_COLUMNS: dict[str, str] = {
+    "Timestamp": "timestamp_raw",
+    "Accelerometer/Raw.X": "accel_x",
+    "Accelerometer/Raw.Y": "accel_y",
+    "Accelerometer/Raw.Z": "accel_z",
+    "Gyroscope/Raw.X": "gyro_x",
+    "Gyroscope/Raw.Y": "gyro_y",
+    "Gyroscope/Raw.Z": "gyro_z",
+    "Nav/Raw.X[LeftTemple]": "nav_x_left_temple",
+    "Nav/Raw.Y[LeftTemple]": "nav_y_left_temple",
+    "Prox/Raw[LeftTemple]": "prox_left_temple",
+    "Annotations": "label",
+}
+
+# Shared by FEIT_eating_S05 and Office_eating_s05: same single-temple OCOsense
+# device, space-separated header names, categorical "Label" column.
+FEIT_S05_COLUMNS: dict[str, str] = {
+    "Software Timestamp": "timestamp_raw",
+    "Hardware Timestamp": "hw_timestamp_raw",
+    "Accelerometer X": "accel_x",
+    "Accelerometer Y": "accel_y",
+    "Accelerometer Z": "accel_z",
+    "Gyroscope X": "gyro_x",
+    "Gyroscope Y": "gyro_y",
+    "Gyroscope Z": "gyro_z",
+    "Navigation Left Temple X": "nav_x_left_temple",
+    "Navigation Left Temple Y": "nav_y_left_temple",
+    "Proximity Left Temple": "prox_left_temple",
+    "Label": "label",
+}
+
+# Categorical -> binary label maps. Values not present in the map (e.g.
+# "Unknown") become NaN, same as the unlabeled gaps in the other datasets.
+DIVERSE_NORMATIVE_LABEL_MAP = {"chewing": 1, "other": 0}
+FEIT_S05_LABEL_MAP = {"Eating": 1, "Not Eating": 0}
+
 DATASET_SPECS: dict[str, dict] = {
     "SIPMEatingStudy": {"columns": SIPM_COLUMNS, "timestamp_unit": "s"},
     "SussexEatingUK": {"columns": SUSSEX_COLUMNS, "timestamp_unit": "s"},
     "Spectacle": {"columns": SPECTACLE_COLUMNS, "timestamp_unit": "ms"},
+    # Non-meal snippets sliced from Spectacle (see scripts/extract_spectacle_nonmeal.py);
+    # same per-file schema/columns as Spectacle, just row-sliced, so reuse its column map.
+    "Spectacle_NonMeal": {"columns": SPECTACLE_COLUMNS, "timestamp_unit": "ms"},
+    "DiverseNormative": {
+        "columns": DIVERSE_NORMATIVE_COLUMNS,
+        "timestamp_unit": "s",
+        "label_map": DIVERSE_NORMATIVE_LABEL_MAP,
+    },
+    "FEIT_eating_S05": {
+        "columns": FEIT_S05_COLUMNS,
+        "timestamp_unit": "ms",
+        "label_map": FEIT_S05_LABEL_MAP,
+    },
+    "Office_eating_s05": {
+        "columns": FEIT_S05_COLUMNS,
+        "timestamp_unit": "ms",
+        "label_map": FEIT_S05_LABEL_MAP,
+    },
 }
 
 # Canonical sensor channels used by the EDA time-series plots, grouped by
@@ -131,6 +185,7 @@ PROX_BROW_COLS = [
     "prox_left_brow", "prox_right_brow", "prox_centre_brow",
     "prox_centre_top_brow", "prox_centre_bottom_brow",
 ]
+PROX_TEMPLE_COLS = ["prox_left_temple"]
 ACCEL_COLS = ["accel_x", "accel_y", "accel_z"]
 
 
@@ -163,6 +218,16 @@ def load_recording(dataset: str, path: str | Path) -> pd.DataFrame:
 
     df = pd.read_csv(path, usecols=usecols, low_memory=False)
     df = df.rename(columns=column_map)
+
+    label_map = spec.get("label_map")
+    if label_map and "label" in df.columns:
+        df["label"] = df["label"].astype(str).str.strip().map(label_map)
+
+    if "label" in df.columns:
+        # Unify label semantics across all datasets: 1 = chewing, everything
+        # else (0, NaN, or an unmapped/unknown category) = not chewing.
+        df["label"] = (df["label"] == 1).astype(int)
+
     df["datetime"] = pd.to_datetime(df["timestamp_raw"], unit=spec["timestamp_unit"])
     df = df.sort_values("datetime").reset_index(drop=True)
     return df

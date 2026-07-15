@@ -107,10 +107,46 @@ def participant_prefixes(s3, bucket, base_prefix, dataset, ds_cfg) -> list[tuple
     return selected
 
 
+def participant_prefixes_anon(
+    s3,
+    bucket: str,
+    dataset: str,
+    dataset_prefix: str,
+    ds_cfg: dict,
+) -> list[tuple[str, str, str]]:
+    """Enumerate participant folders whose real names must be anonymised to p01, p02, ...
+
+    Returns list of (anon_label, s3_prefix, local_rel_prefix) tuples.
+    - anon_label:        e.g. "p01" or "p01/Eating"
+    - s3_prefix:         full S3 prefix to list objects under
+    - local_rel_prefix:  path relative to dest_root, e.g. "FEIT_eating/p01/Eating/"
+
+    For type=eating_subfolder, set ds_cfg["download_subfolders"] = ["Eating"] (or more).
+    For type=direct_csv, leave download_subfolders absent / empty → files are at folder root.
+    """
+    folders = sorted(list_subfolders(s3, bucket, dataset_prefix))
+    subfolders: list[str] = ds_cfg.get("download_subfolders") or []
+
+    result: list[tuple[str, str, str]] = []
+    for idx, folder in enumerate(folders, start=1):
+        anon = f"p{idx:02d}"
+        if subfolders:
+            for sub in subfolders:
+                s3_pfx = f"{dataset_prefix}{folder}/{sub}/"
+                local_pfx = f"{dataset}/{anon}/{sub}/"
+                result.append((f"{anon}/{sub}", s3_pfx, local_pfx))
+        else:
+            s3_pfx = f"{dataset_prefix}{folder}/"
+            local_pfx = f"{dataset}/{anon}/"
+            result.append((anon, s3_pfx, local_pfx))
+
+    return result
+
+
 def build_plan(s3, cfg, datasets_filter, dest_root) -> dict[str, list[PlanItem]]:
     """Walk the enabled datasets and build a per-dataset list of files to download."""
     s3_cfg = cfg["s3"]
-    base_prefix = s3_cfg["base_prefix"]
+    global_base_prefix = s3_cfg["base_prefix"]
     extensions = s3_cfg.get("include_extensions", [])
     plan: dict[str, list[PlanItem]] = {}
 
@@ -121,37 +157,52 @@ def build_plan(s3, cfg, datasets_filter, dest_root) -> dict[str, list[PlanItem]]
         if datasets_filter and dataset not in datasets_filter:
             continue
 
-        parts = participant_prefixes(
-            s3,
-            s3_cfg["bucket"],
-            base_prefix,
-            dataset,
-            ds_cfg,
-        )
-
-        if not parts:
-            print(
-                f"  WARNING [{dataset}]: 0 participant folders matched "
-                f"(participants={ds_cfg.get('participants')!r})"
-            )
+        ds_type = ds_cfg.get("type", "default")
+        # Per-dataset base_prefix allows datasets stored under a different S3 path.
+        base_prefix = ds_cfg.get("base_prefix", global_base_prefix)
+        dataset_prefix = f"{base_prefix}{dataset}/"
 
         items: list[PlanItem] = []
 
-        for _label, prefix in parts:
-            for obj in list_objects(s3, s3_cfg["bucket"], prefix):
+        if ds_type in ("eating_subfolder", "direct_csv"):
+            anon_parts = participant_prefixes_anon(
+                s3, s3_cfg["bucket"], dataset, dataset_prefix, ds_cfg
+            )
+            if not anon_parts:
+                print(f"  WARNING [{dataset}]: 0 participant folders found under {dataset_prefix!r}")
 
-                if not wanted_extension(obj["Key"], extensions):
-                    continue
+            for _label, s3_pfx, local_pfx in anon_parts:
+                for obj in list_objects(s3, s3_cfg["bucket"], s3_pfx):
+                    if not wanted_extension(obj["Key"], extensions):
+                        continue
+                    rel_within = obj["Key"][len(s3_pfx):]
+                    items.append(PlanItem(
+                        obj["Key"],
+                        obj["Size"],
+                        dest_root / local_pfx / rel_within,
+                    ))
 
-                rel = obj["Key"][len(base_prefix):]
+        else:
+            # Default: existing logic (SIPMEatingStudy, Spectacle, SussexEatingUK)
+            parts = participant_prefixes(
+                s3, s3_cfg["bucket"], base_prefix, dataset, ds_cfg
+            )
+            if not parts:
+                print(
+                    f"  WARNING [{dataset}]: 0 participant folders matched "
+                    f"(participants={ds_cfg.get('participants')!r})"
+                )
 
-                items.append(
-                    PlanItem(
+            for _label, prefix in parts:
+                for obj in list_objects(s3, s3_cfg["bucket"], prefix):
+                    if not wanted_extension(obj["Key"], extensions):
+                        continue
+                    rel = obj["Key"][len(base_prefix):]
+                    items.append(PlanItem(
                         obj["Key"],
                         obj["Size"],
                         dest_root / rel,
-                    )
-                )
+                    ))
 
         plan[dataset] = items
 
@@ -200,18 +251,27 @@ def execute_plan(s3, bucket, plan, skip_existing, dry_run) -> None:
 def list_participants(s3, cfg, datasets_filter) -> None:
     """Print the participant folders found per dataset, without downloading."""
     s3_cfg = cfg["s3"]
-    base_prefix = s3_cfg["base_prefix"]
+    global_base_prefix = s3_cfg["base_prefix"]
     for dataset, ds_cfg in cfg.get("datasets", {}).items():
         if datasets_filter and dataset not in datasets_filter:
             continue
+
+        ds_type = ds_cfg.get("type", "default")
+        base_prefix = ds_cfg.get("base_prefix", global_base_prefix)
         dataset_prefix = f"{base_prefix}{dataset}/"
-        weeks = ds_cfg.get("weeks")
-        parents = [f"{dataset_prefix}{w}/" for w in weeks] if weeks else [dataset_prefix]
+
         print(f"\n{dataset}:")
-        for parent in parents:
-            label = parent[len(dataset_prefix):].rstrip("/") or "(root)"
-            folders = sorted(list_subfolders(s3, s3_cfg["bucket"], parent))
-            print(f"  {label}: {len(folders)} folder(s) -> {', '.join(folders) or '(none)'}")
+        if ds_type in ("eating_subfolder", "direct_csv"):
+            folders = sorted(list_subfolders(s3, s3_cfg["bucket"], dataset_prefix))
+            for idx, folder in enumerate(folders, start=1):
+                print(f"  {folder!r} -> p{idx:02d}")
+        else:
+            weeks = ds_cfg.get("weeks")
+            parents = [f"{dataset_prefix}{w}/" for w in weeks] if weeks else [dataset_prefix]
+            for parent in parents:
+                label = parent[len(dataset_prefix):].rstrip("/") or "(root)"
+                folders = sorted(list_subfolders(s3, s3_cfg["bucket"], parent))
+                print(f"  {label}: {len(folders)} folder(s) -> {', '.join(folders) or '(none)'}")
 
 
 def main() -> None:
