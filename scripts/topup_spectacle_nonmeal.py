@@ -1,7 +1,3 @@
-"""
-Top up Spectacle_NonMeal after removing bad snippets (dead/flat channel,
-NaN-corrupted rows, etc.)
-"""
 from __future__ import annotations
 
 import argparse
@@ -91,7 +87,17 @@ def subtract_consumed(
 
 def candidate_is_valid(df: pd.DataFrame) -> bool:
     """Same defects flagged manually: any NaN in accel/nav data columns, or
-    an accel axis that's essentially flat (disconnected/stationary-off-body)."""
+    an accel axis that's essentially flat (disconnected/stationary-off-body).
+
+    Also rejects an empty slice outright: std()/isna() on 0 rows are
+    vacuously "fine" (NaN-vs-threshold comparisons are always False), so
+    without this check an interval-availability/actual-data mismatch (the
+    light scan says a window is free, but the real row slice comes back
+    empty) silently produces a corrupted 0-row snippet instead of being
+    caught here.
+    """
+    if len(df) == 0:
+        return False
     accel_cols = [c for c in df.columns if prefix_of(c) == "Accelerometer"]
     nav_cols = [c for c in df.columns if prefix_of(c) == "Navigation" and not is_nav_debug_column(c)]
     check_cols = accel_cols + nav_cols

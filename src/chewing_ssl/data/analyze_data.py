@@ -141,12 +141,23 @@ def estimate_rate(path: Path, dataset: str, n_rows: int = 500) -> float | None:
         return None
 
 
+NON_DATA_CSV_NAMES = {"manifest.csv", "excluded_windows.csv"}
+
+
 def collect(root: Path) -> dict[str, list[Path]]:
-    """Map each top-level dataset folder to its list of CSV files."""
+    """Map each top-level dataset folder to its list of CSV files.
+
+    Excludes the Spectacle_NonMeal extraction metadata files (manifest.csv,
+    excluded_windows.csv, see scripts/extract_spectacle_nonmeal.py /
+    topup_spectacle_nonmeal.py) -- these sit alongside the real per-participant
+    CSVs but aren't sensor data, and would otherwise corrupt schema/rate stats.
+    """
     datasets: dict[str, list[Path]] = {}
     for child in sorted(root.iterdir()):
         if child.is_dir():
-            datasets[child.name] = sorted(child.rglob("*.csv"))
+            datasets[child.name] = sorted(
+                p for p in child.rglob("*.csv") if p.name not in NON_DATA_CSV_NAMES
+            )
     return datasets
 
 
