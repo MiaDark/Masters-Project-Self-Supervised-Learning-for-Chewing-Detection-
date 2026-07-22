@@ -26,7 +26,9 @@ def test_sample_mask_batch_ratio_is_at_least_the_span_target():
 
 
 def test_sample_mask_batch_zero_ratio_and_prob_masks_nothing():
-    mask = sample_mask_batch(4, 7, 200, span_mask_ratio=0.0, channel_mask_prob=0.0, min_spans=1, max_spans=1)
+    mask = sample_mask_batch(
+        4, 7, 200, span_mask_ratio=0.0, channel_mask_prob=0.0, min_spans=1, max_spans=1
+    )
     assert not mask.any()
 
 

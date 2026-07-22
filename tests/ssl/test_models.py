@@ -84,7 +84,8 @@ def test_all_architectures_encode_is_differentiable():
         h = model.encode(x)
         h.sum().backward()
         missing = [
-            n for n, p in model.named_parameters()
+            n
+            for n, p in model.named_parameters()
             if p.requires_grad and p.grad is None and n.split(".")[0] not in decoder_only
         ]
         assert not missing, f"{name}: encoder parameters with no gradient: {missing}"

@@ -115,7 +115,9 @@ def test_apply_time_domain_augmentation_zero_probability_is_identity():
 
 def test_apply_time_domain_augmentation_shape_preserved():
     x = torch.randn(B, C, T)
-    out = apply_time_domain_augmentation(x, _config(apply_probability=1.0), generator=torch.Generator().manual_seed(1))
+    out = apply_time_domain_augmentation(
+        x, _config(apply_probability=1.0), generator=torch.Generator().manual_seed(1)
+    )
     assert out.shape == x.shape
 
 
@@ -172,14 +174,20 @@ def test_add_frequency_zero_ratio_is_identity():
 
 def test_apply_frequency_domain_augmentation_zero_probability_is_identity():
     x_freq = to_frequency(torch.randn(B, C, T))
-    out = apply_frequency_domain_augmentation(x_freq, _config(apply_probability=0.0), n_time=T, fs=50.0)
+    out = apply_frequency_domain_augmentation(
+        x_freq, _config(apply_probability=0.0), n_time=T, fs=50.0
+    )
     assert torch.equal(out, x_freq)
 
 
 def test_apply_frequency_domain_augmentation_shape_preserved():
     x_freq = to_frequency(torch.randn(B, C, T))
     out = apply_frequency_domain_augmentation(
-        x_freq, _config(apply_probability=1.0), n_time=T, fs=50.0, generator=torch.Generator().manual_seed(2)
+        x_freq,
+        _config(apply_probability=1.0),
+        n_time=T,
+        fs=50.0,
+        generator=torch.Generator().manual_seed(2),
     )
     assert out.shape == x_freq.shape
 
@@ -189,8 +197,12 @@ def test_apply_frequency_domain_augmentation_shape_preserved():
 
 def test_fuse_time_frequency_output_shape():
     time_aug = np.random.randn(B, C, T).astype(np.float32)
-    freq_aug = (np.random.randn(B, C, T // 2 + 1) + 1j * np.random.randn(B, C, T // 2 + 1)).astype(np.complex64)
-    out = fuse_time_frequency(time_aug, freq_aug, {"kernel": "rbf", "n_components": 3, "gamma": None})
+    freq_aug = (np.random.randn(B, C, T // 2 + 1) + 1j * np.random.randn(B, C, T // 2 + 1)).astype(
+        np.complex64
+    )
+    out = fuse_time_frequency(
+        time_aug, freq_aug, {"kernel": "rbf", "n_components": 3, "gamma": None}
+    )
     assert out.shape == (B, 6)  # 2 * n_components
 
 
@@ -204,6 +216,8 @@ def test_make_augmented_views_shapes():
 
 def test_make_augmented_views_with_fusion():
     x = torch.randn(B, C, T)
-    views = make_augmented_views(x, _config(), generator=torch.Generator().manual_seed(4), include_fusion=True)
+    views = make_augmented_views(
+        x, _config(), generator=torch.Generator().manual_seed(4), include_fusion=True
+    )
     assert views.fused is not None
     assert views.fused.shape == (B, 6)  # 2 * n_components

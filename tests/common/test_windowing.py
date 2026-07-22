@@ -24,7 +24,11 @@ from tests.conftest import make_interim_segment
 
 def test_datasets_config_has_all_five_expected():
     assert set(DATASETS) == {
-        "SIPMEatingStudy", "SussexEatingUK", "FEIT_eating_S05", "Office_eating_s05", "Spectacle_NonMeal",
+        "SIPMEatingStudy",
+        "SussexEatingUK",
+        "FEIT_eating_S05",
+        "Office_eating_s05",
+        "Spectacle_NonMeal",
     }
 
 
@@ -36,9 +40,10 @@ def test_extract_participant_identity_when_no_underscore():
 
 
 def test_extract_participant_spectacle_nonmeal_splits_on_first_underscore():
-    assert extract_participant(
-        "Spectacle_NonMeal", "p01_week2_p01_year_2024-month_9-day_3_snippet004"
-    ) == "p01"
+    assert (
+        extract_participant("Spectacle_NonMeal", "p01_week2_p01_year_2024-month_9-day_3_snippet004")
+        == "p01"
+    )
 
 
 def test_split_list_assigns_every_item_exactly_once():
@@ -148,7 +153,9 @@ def test_build_window_index_respects_purpose_and_stride(synthetic_interim_tree):
     # by exactly the purpose's stride.
     one_purpose = index[index["purpose"] == "finetune_train"]
     if len(one_purpose) > 1:
-        one_segment = one_purpose[one_purpose["segment_path"] == one_purpose["segment_path"].iloc[0]]
+        one_segment = one_purpose[
+            one_purpose["segment_path"] == one_purpose["segment_path"].iloc[0]
+        ]
         starts = sorted(one_segment["start"].tolist())
         if len(starts) > 1:
             assert starts[1] - starts[0] == TRAIN_STRIDE
@@ -191,10 +198,24 @@ def test_window_dataset_shapes_and_values(tmp_path):
 
     index = pd.DataFrame(
         [
-            {"dataset": "SIPMEatingStudy", "participant": "p01", "tag": "p01", "purpose": "finetune_train",
-             "segment_path": str(seg_path), "start": 0, "end": WINDOW_LEN},
-            {"dataset": "SIPMEatingStudy", "participant": "p01", "tag": "p01", "purpose": "finetune_train",
-             "segment_path": str(seg_path), "start": 50, "end": 50 + WINDOW_LEN},
+            {
+                "dataset": "SIPMEatingStudy",
+                "participant": "p01",
+                "tag": "p01",
+                "purpose": "finetune_train",
+                "segment_path": str(seg_path),
+                "start": 0,
+                "end": WINDOW_LEN,
+            },
+            {
+                "dataset": "SIPMEatingStudy",
+                "participant": "p01",
+                "tag": "p01",
+                "purpose": "finetune_train",
+                "segment_path": str(seg_path),
+                "start": 50,
+                "end": 50 + WINDOW_LEN,
+            },
         ]
     )
     ds = WindowDataset(index, with_label=True)
@@ -213,12 +234,24 @@ def test_window_dataset_shapes_and_values(tmp_path):
 def test_window_dataset_evicts_least_recently_used_segment(tmp_path):
     paths = []
     for i in range(3):
-        seg_dir = make_interim_segment(tmp_path / "interim", "SIPMEatingStudy", f"p0{i}", n_samples=300)
+        seg_dir = make_interim_segment(
+            tmp_path / "interim", "SIPMEatingStudy", f"p0{i}", n_samples=300
+        )
         paths.append(str(seg_dir / "segment_00.parquet"))
 
     index = pd.DataFrame(
-        [{"dataset": "SIPMEatingStudy", "participant": f"p0{i}", "tag": f"p0{i}", "purpose": "finetune_train",
-          "segment_path": p, "start": 0, "end": WINDOW_LEN} for i, p in enumerate(paths)]
+        [
+            {
+                "dataset": "SIPMEatingStudy",
+                "participant": f"p0{i}",
+                "tag": f"p0{i}",
+                "purpose": "finetune_train",
+                "segment_path": p,
+                "start": 0,
+                "end": WINDOW_LEN,
+            }
+            for i, p in enumerate(paths)
+        ]
     )
     ds = WindowDataset(index, with_label=True, cache_size=2)
     for i in range(3):
@@ -245,7 +278,12 @@ def test_run_writes_splits_and_index(synthetic_interim_tree, tmp_path):
     written_purposes = {p.stem for p in index_dir.glob("*.parquet")}
     assert written_purposes  # at least one purpose got windows
     assert written_purposes <= {
-        "pretrain_train", "pretrain_val", "finetune_train", "finetune_val", "finetune_test", "meal_test",
+        "pretrain_train",
+        "pretrain_val",
+        "finetune_train",
+        "finetune_val",
+        "finetune_test",
+        "meal_test",
     }
 
 
@@ -279,11 +317,22 @@ def test_run_custom_window_len(synthetic_interim_tree, tmp_path):
 
 
 def test_window_dataset_without_label(tmp_path):
-    seg_dir = make_interim_segment(tmp_path / "interim", "Spectacle_NonMeal", "p01_snippet001", n_samples=300, has_label=False)
+    seg_dir = make_interim_segment(
+        tmp_path / "interim", "Spectacle_NonMeal", "p01_snippet001", n_samples=300, has_label=False
+    )
     seg_path = seg_dir / "segment_00.parquet"
     index = pd.DataFrame(
-        [{"dataset": "Spectacle_NonMeal", "participant": "p01", "tag": "p01_snippet001", "purpose": "pretrain_train",
-          "segment_path": str(seg_path), "start": 0, "end": WINDOW_LEN}]
+        [
+            {
+                "dataset": "Spectacle_NonMeal",
+                "participant": "p01",
+                "tag": "p01_snippet001",
+                "purpose": "pretrain_train",
+                "segment_path": str(seg_path),
+                "start": 0,
+                "end": WINDOW_LEN,
+            }
+        ]
     )
     ds = WindowDataset(index, with_label=False)
     x = ds[0]

@@ -29,7 +29,9 @@ def test_fit_train_only_global_stats_matches_manual_computation(synthetic_interi
     stats = fit_train_only_global_stats(synthetic_interim_tree, splits, channels=["accel_x"])
 
     manual_values = []
-    for _, _, path, _meta in iter_segments(synthetic_interim_tree, splits, only_pretrain_eligible=True):
+    for _, _, path, _meta in iter_segments(
+        synthetic_interim_tree, splits, only_pretrain_eligible=True
+    ):
         df = pd.read_parquet(path, columns=["accel_x"])
         manual_values.append(df["accel_x"].to_numpy())
     expected_mean = np.concatenate(manual_values).mean()

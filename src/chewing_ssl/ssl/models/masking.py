@@ -66,7 +66,9 @@ def apply_mask_token(x: torch.Tensor, mask: torch.Tensor, mask_token: torch.Tens
     return torch.where(mask, token, x)
 
 
-def masked_mse(reconstruction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+def masked_mse(
+    reconstruction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
+) -> torch.Tensor:
     """MSE computed only over masked positions -- otherwise the model could trivially
     copy unmasked input through and the loss would mostly reflect that, not how well
     it fills in the masked spans."""
@@ -74,7 +76,9 @@ def masked_mse(reconstruction: torch.Tensor, target: torch.Tensor, mask: torch.T
     return diff2[mask].mean()
 
 
-def masked_mse_per_channel(reconstruction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+def masked_mse_per_channel(
+    reconstruction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
+) -> torch.Tensor:
     """Per-channel masked MSE, shape (C,). NaN for a channel with no masked positions in this batch."""
     diff2 = (reconstruction - target) ** 2
     n_channels = reconstruction.shape[1]

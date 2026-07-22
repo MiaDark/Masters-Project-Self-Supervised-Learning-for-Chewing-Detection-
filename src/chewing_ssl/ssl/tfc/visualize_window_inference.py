@@ -40,6 +40,7 @@ import argparse
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -63,11 +64,16 @@ from chewing_ssl.common.data.windowing import WindowDataset
 from chewing_ssl.ssl.models import ARCHITECTURES
 from chewing_ssl.ssl.models.frequency_encoder import FrequencyEncoder
 from chewing_ssl.ssl.models.resnet1d import ResNet1D
-from chewing_ssl.ssl.tfc.finetune_window import ContrastivePretrainedEncoder, WindowClassifier, window_labels
+from chewing_ssl.ssl.tfc.finetune_window import (
+    ContrastivePretrainedEncoder,
+    WindowClassifier,
+    window_labels,
+)
 from chewing_ssl.ssl.masked.pretrain import MODEL_KWARGS, load_index
 
 PALETTE = {"non_chewing": "#90A4AE", "chewing": "#E65100"}
 CKPT_COLORS = ["#1565C0", "#C62828", "#2E7D32", "#6A1B9A"]
+
 
 def infer_pretext_task(checkpoint_path: Path) -> str:
     stem = checkpoint_path.stem
@@ -81,14 +87,18 @@ def infer_pretext_task(checkpoint_path: Path) -> str:
     )
 
 
-def build_encoder(pretext_task: str, n_channels: int, time_architecture: str, resnet_base_width: int) -> ContrastivePretrainedEncoder:
+def build_encoder(
+    pretext_task: str, n_channels: int, time_architecture: str, resnet_base_width: int
+) -> ContrastivePretrainedEncoder:
     """A freshly-initialized encoder with the right shapes for pretext_task,
     ready to have a real fine-tuned state_dict loaded onto it -- reuses
     ContrastivePretrainedEncoder's real construction logic by feeding it a
     synthetic "checkpoint" dict built from freshly-constructed sub-modules,
     rather than duplicating that logic here."""
     if pretext_task == "tfc":
-        time_enc = ARCHITECTURES[time_architecture](n_channels=n_channels, **MODEL_KWARGS[time_architecture])
+        time_enc = ARCHITECTURES[time_architecture](
+            n_channels=n_channels, **MODEL_KWARGS[time_architecture]
+        )
         freq_enc = FrequencyEncoder(n_channels=n_channels)
         fake_checkpoint = {
             "pretext_task": "tfc",
@@ -112,8 +122,12 @@ def build_encoder(pretext_task: str, n_channels: int, time_architecture: str, re
 
 
 def load_window_classifier(
-    checkpoint_path: Path, n_channels: int, time_architecture: str, resnet_base_width: int,
-    head_hidden_dim: int, head_dropout: float,
+    checkpoint_path: Path,
+    n_channels: int,
+    time_architecture: str,
+    resnet_base_width: int,
+    head_hidden_dim: int,
+    head_dropout: float,
 ) -> tuple[WindowClassifier, str]:
     pretext_task = infer_pretext_task(checkpoint_path)
     encoder = build_encoder(pretext_task, n_channels, time_architecture, resnet_base_width)
@@ -121,7 +135,9 @@ def load_window_classifier(
     state = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     model.load_state_dict(state["model_state_dict"])
     model.eval()
-    print(f"  [{pretext_task}] loaded {checkpoint_path}  (val_f1={state.get('val_f1', float('nan')):.3f})")
+    print(
+        f"  [{pretext_task}] loaded {checkpoint_path}  (val_f1={state.get('val_f1', float('nan')):.3f})"
+    )
     return model, pretext_task
 
 
@@ -154,17 +170,27 @@ def infer_test_set(model: WindowClassifier, loader: DataLoader) -> dict:
     probs = np.concatenate(all_probs)
     labels = np.concatenate(all_labels).astype(int)
     embeddings = np.concatenate(all_embeddings)
-    return {"probs": probs, "preds": (probs >= 0.5).astype(int), "labels": labels, "embeddings": embeddings}
+    return {
+        "probs": probs,
+        "preds": (probs >= 0.5).astype(int),
+        "labels": labels,
+        "embeddings": embeddings,
+    }
 
 
 # ── Figure 1: metrics comparison ─────────────────────────────────────────────
 
 
-def plot_metrics_comparison(results: dict[str, dict], out_path: Path, threshold: float = 0.5) -> None:
+def plot_metrics_comparison(
+    results: dict[str, dict], out_path: Path, threshold: float = 0.5
+) -> None:
     names = list(results)
     n = len(names)
     fig, axes = plt.subplots(1, n + 2, figsize=(4.2 * (n + 2), 4.5))
-    fig.suptitle(f"Window-level evaluation on finetune_test  (decision threshold={threshold:.2f})", fontsize=12)
+    fig.suptitle(
+        f"Window-level evaluation on finetune_test  (decision threshold={threshold:.2f})",
+        fontsize=12,
+    )
 
     for i, name in enumerate(names):
         r = results[name]
@@ -172,12 +198,21 @@ def plot_metrics_comparison(results: dict[str, dict], out_path: Path, threshold:
         preds = (r["probs"] >= threshold).astype(int)
         cm = confusion_matrix(r["labels"], preds)
         cm_norm = cm / cm.sum()
-        im = ax.imshow(cm_norm, cmap="Blues", vmin=0, vmax=1)
+        ax.imshow(cm_norm, cmap="Blues", vmin=0, vmax=1)
         for row in range(2):
             for col in range(2):
                 color = "white" if cm_norm[row, col] > 0.5 else "black"
-                ax.text(col, row, f"{cm[row, col]:,}\n({cm_norm[row, col]:.1%})", ha="center", va="center", fontsize=9, color=color)
-        ax.set_xticks([0, 1]); ax.set_yticks([0, 1])
+                ax.text(
+                    col,
+                    row,
+                    f"{cm[row, col]:,}\n({cm_norm[row, col]:.1%})",
+                    ha="center",
+                    va="center",
+                    fontsize=9,
+                    color=color,
+                )
+        ax.set_xticks([0, 1])
+        ax.set_yticks([0, 1])
         ax.set_xticklabels(["Pred: no chew", "Pred: chewing"], fontsize=8)
         ax.set_yticklabels(["True: no chew", "True: chewing"], fontsize=8)
         f1 = metrics_from_probs(r["probs"], r["labels"], threshold)["f1"]
@@ -188,7 +223,13 @@ def plot_metrics_comparison(results: dict[str, dict], out_path: Path, threshold:
         r = results[name]
         fpr, tpr, _ = roc_curve(r["labels"], r["probs"])
         auc = roc_auc_score(r["labels"], r["probs"])
-        ax_roc.plot(fpr, tpr, color=CKPT_COLORS[i % len(CKPT_COLORS)], linewidth=2, label=f"{name} (AUC={auc:.3f})")
+        ax_roc.plot(
+            fpr,
+            tpr,
+            color=CKPT_COLORS[i % len(CKPT_COLORS)],
+            linewidth=2,
+            label=f"{name} (AUC={auc:.3f})",
+        )
     ax_roc.plot([0, 1], [0, 1], "k--", linewidth=0.8, label="random")
     ax_roc.set_xlabel("False Positive Rate", fontsize=9)
     ax_roc.set_ylabel("True Positive Rate", fontsize=9)
@@ -202,11 +243,14 @@ def plot_metrics_comparison(results: dict[str, dict], out_path: Path, threshold:
         prec, rec, _ = precision_recall_curve(r["labels"], r["probs"])
         ax_pr.plot(rec, prec, color=CKPT_COLORS[i % len(CKPT_COLORS)], linewidth=2, label=name)
     chew_frac = list(results.values())[0]["labels"].mean()
-    ax_pr.axhline(chew_frac, color="grey", linestyle="--", linewidth=0.8, label=f"no-skill ({chew_frac:.1%})")
+    ax_pr.axhline(
+        chew_frac, color="grey", linestyle="--", linewidth=0.8, label=f"no-skill ({chew_frac:.1%})"
+    )
     ax_pr.set_xlabel("Recall", fontsize=9)
     ax_pr.set_ylabel("Precision", fontsize=9)
     ax_pr.set_title("Precision-Recall Curve", fontsize=10)
-    ax_pr.set_xlim(0, 1); ax_pr.set_ylim(0, 1)
+    ax_pr.set_xlim(0, 1)
+    ax_pr.set_ylim(0, 1)
     ax_pr.legend(fontsize=8)
     ax_pr.grid(alpha=0.2)
 
@@ -220,7 +264,9 @@ def plot_metrics_comparison(results: dict[str, dict], out_path: Path, threshold:
 # ── Figure 2: embedding space ────────────────────────────────────────────────
 
 
-def plot_embedding_space(results: dict[str, dict], out_path: Path, max_points: int = 2000, seed: int = 42) -> None:
+def plot_embedding_space(
+    results: dict[str, dict], out_path: Path, max_points: int = 2000, seed: int = 42
+) -> None:
     names = list(results)
     fig, axes = plt.subplots(1, len(names), figsize=(6 * len(names), 5.5))
     axes = np.atleast_1d(axes)
@@ -233,7 +279,10 @@ def plot_embedding_space(results: dict[str, dict], out_path: Path, max_points: i
         idx = rng.choice(n, size=min(max_points, n), replace=False)
         emb2d = PCA(n_components=2, random_state=seed).fit_transform(r["embeddings"][idx])
         labels = r["labels"][idx]
-        for lab, color, lab_name in [(0, PALETTE["non_chewing"], "non-chewing"), (1, PALETTE["chewing"], "chewing")]:
+        for lab, color, lab_name in [
+            (0, PALETTE["non_chewing"], "non-chewing"),
+            (1, PALETTE["chewing"], "chewing"),
+        ]:
             mask = labels == lab
             ax.scatter(emb2d[mask, 0], emb2d[mask, 1], color=color, alpha=0.5, s=12, label=lab_name)
         ax.set_title(name, fontsize=10)
@@ -259,8 +308,13 @@ def _label_bar(ax: plt.Axes, values: np.ndarray, title: str) -> None:
 
 
 def _plot_one_recording(
-    models: dict[str, WindowClassifier], part_index: pd.DataFrame,
-    dataset: str, participant: str, tag: str, out_path: Path, threshold: float = 0.5,
+    models: dict[str, WindowClassifier],
+    part_index: pd.DataFrame,
+    dataset: str,
+    participant: str,
+    tag: str,
+    out_path: Path,
+    threshold: float = 0.5,
 ) -> None:
     loader = DataLoader(WindowDataset(part_index, with_label=True), batch_size=64, shuffle=False)
     labels_all = []
@@ -288,7 +342,11 @@ def _plot_one_recording(
     for name, prob_chunks in preds_by_model.items():
         probs = np.concatenate(prob_chunks)
         _label_bar(axes[row], probs, f"{name}\nP(chew)\n(raw)")
-        _label_bar(axes[row + 1], (probs >= threshold).astype(float), f"{name}\n≥{threshold:.2f}\n(decision)")
+        _label_bar(
+            axes[row + 1],
+            (probs >= threshold).astype(float),
+            f"{name}\n≥{threshold:.2f}\n(decision)",
+        )
         row += 2
     axes[-1].set_xlabel("Window index (chronological)", fontsize=9)
 
@@ -300,8 +358,12 @@ def _plot_one_recording(
 
 
 def plot_recording_predictions(
-    models: dict[str, WindowClassifier], test_index: pd.DataFrame, out_dir: Path,
-    dataset: str | None, participant: str | None, threshold: float = 0.5,
+    models: dict[str, WindowClassifier],
+    test_index: pd.DataFrame,
+    out_dir: Path,
+    dataset: str | None,
+    participant: str | None,
+    threshold: float = 0.5,
 ) -> None:
     """Plots one or every genuinely continuous test recording -- (dataset,
     participant, tag) is the key that guarantees "continuous", not
@@ -319,37 +381,67 @@ def plot_recording_predictions(
         recordings = sorted(test_index.groupby(["dataset", "participant", "tag"]).size().index)
         print(f"  {len(recordings)} distinct test recording(s) -- one PNG each")
         for ds, part, tag in recordings:
-            part_index = test_index[
-                (test_index["dataset"] == ds) & (test_index["participant"] == part) & (test_index["tag"] == tag)
-            ].sort_values("start").reset_index(drop=True)
+            part_index = (
+                test_index[
+                    (test_index["dataset"] == ds)
+                    & (test_index["participant"] == part)
+                    & (test_index["tag"] == tag)
+                ]
+                .sort_values("start")
+                .reset_index(drop=True)
+            )
             out_path = out_dir / f"window_predictions_recording_{ds}_{part}_{tag}.png"
             _plot_one_recording(models, part_index, ds, part, tag, out_path, threshold)
         return
 
     if participant is not None and dataset is None:
-        raise ValueError("--participant requires --recording-dataset too (participant IDs repeat across datasets).")
+        raise ValueError(
+            "--participant requires --recording-dataset too (participant IDs repeat across datasets)."
+        )
 
     if dataset is not None and participant is not None:
-        candidates = test_index[(test_index["dataset"] == dataset) & (test_index["participant"] == participant)]
+        candidates = test_index[
+            (test_index["dataset"] == dataset) & (test_index["participant"] == participant)
+        ]
         if candidates.empty:
-            print(f"  No test windows for {dataset}/{participant} -- skipping window_predictions_recording.png")
+            print(
+                f"  No test windows for {dataset}/{participant} -- skipping window_predictions_recording.png"
+            )
             return
         tag = candidates.groupby("tag").size().idxmax()
         if candidates["tag"].nunique() > 1:
-            print(f"  {dataset}/{participant} spans {candidates['tag'].nunique()} separate recordings -- using the longest: {tag}")
+            print(
+                f"  {dataset}/{participant} spans {candidates['tag'].nunique()} separate recordings -- using the longest: {tag}"
+            )
     else:
         counts = test_index.groupby(["dataset", "participant", "tag"]).size()
-        dataset, participant, tag = counts.idxmax()  # most windows -> longest, most informative single recording
+        dataset, participant, tag = (
+            counts.idxmax()
+        )  # most windows -> longest, most informative single recording
 
-    part_index = test_index[
-        (test_index["dataset"] == dataset) & (test_index["participant"] == participant) & (test_index["tag"] == tag)
-    ].sort_values("start").reset_index(drop=True)
+    part_index = (
+        test_index[
+            (test_index["dataset"] == dataset)
+            & (test_index["participant"] == participant)
+            & (test_index["tag"] == tag)
+        ]
+        .sort_values("start")
+        .reset_index(drop=True)
+    )
     if part_index.empty:
-        print(f"  No test windows found for {dataset}/{participant}/{tag} -- skipping window_predictions_recording.png")
+        print(
+            f"  No test windows found for {dataset}/{participant}/{tag} -- skipping window_predictions_recording.png"
+        )
         return
 
     _plot_one_recording(
-        models, part_index, dataset, participant, tag, out_dir / "window_predictions_recording.png", threshold
+        models,
+        part_index,
+        dataset,
+        participant,
+        tag,
+        out_dir / "window_predictions_recording.png",
+        threshold,
     )
 
 
@@ -357,28 +449,62 @@ def plot_recording_predictions(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate + visualize finetune_window.py checkpoint(s) on finetune_test.")
-    parser.add_argument("--checkpoints", type=Path, nargs="+", required=True,
-                         help="One or more finetune_window.py checkpoints (pretext_task inferred from filename).")
-    parser.add_argument("--names", nargs="+", default=None,
-                         help="Display names for each checkpoint, same order as --checkpoints. Default: pretext_task.")
-    parser.add_argument("--time-architecture", default="cnn", help="For any tfc checkpoint (default matches pretrain_tfc.py's default).")
-    parser.add_argument("--resnet-base-width", type=int, default=32, help="For any tffc checkpoint (default matches pretrain_tffc.py's default).")
+    parser = argparse.ArgumentParser(
+        description="Evaluate + visualize finetune_window.py checkpoint(s) on finetune_test."
+    )
+    parser.add_argument(
+        "--checkpoints",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="One or more finetune_window.py checkpoints (pretext_task inferred from filename).",
+    )
+    parser.add_argument(
+        "--names",
+        nargs="+",
+        default=None,
+        help="Display names for each checkpoint, same order as --checkpoints. Default: pretext_task.",
+    )
+    parser.add_argument(
+        "--time-architecture",
+        default="cnn",
+        help="For any tfc checkpoint (default matches pretrain_tfc.py's default).",
+    )
+    parser.add_argument(
+        "--resnet-base-width",
+        type=int,
+        default=32,
+        help="For any tffc checkpoint (default matches pretrain_tffc.py's default).",
+    )
     parser.add_argument("--head-hidden-dim", type=int, default=64)
     parser.add_argument("--head-dropout", type=float, default=0.3)
     parser.add_argument("--processed-root", type=Path, default=Path("data/processed"))
-    parser.add_argument("--dataset", default=None, help="Restrict finetune_test (all figures/metrics) to one dataset. Default: all.")
-    parser.add_argument("--recording-dataset", default=None,
-                         help="Dataset for the recording-strip figure's example (required if --participant is given "
-                              "and isn't 'all'; participant IDs repeat across datasets). Ignored if --participant=all.")
-    parser.add_argument("--participant", default=None,
-                         help="Participant for the recording-strip figure, or 'all' to plot every distinct test "
-                              "recording (one PNG each, mirrors visualize_inference.py's --example-participant all). "
-                              "Default: the single (dataset, participant, tag) with the most test windows.")
-    parser.add_argument("--threshold", type=float, default=0.5,
-                         help="Decision threshold for probability->0/1 (e.g. 0.4). Applied to the confusion "
-                              "matrix, printed metrics, and the recording-strip 'decision' row. ROC/PR curves "
-                              "are threshold-independent by construction and unaffected.")
+    parser.add_argument(
+        "--dataset",
+        default=None,
+        help="Restrict finetune_test (all figures/metrics) to one dataset. Default: all.",
+    )
+    parser.add_argument(
+        "--recording-dataset",
+        default=None,
+        help="Dataset for the recording-strip figure's example (required if --participant is given "
+        "and isn't 'all'; participant IDs repeat across datasets). Ignored if --participant=all.",
+    )
+    parser.add_argument(
+        "--participant",
+        default=None,
+        help="Participant for the recording-strip figure, or 'all' to plot every distinct test "
+        "recording (one PNG each, mirrors visualize_inference.py's --example-participant all). "
+        "Default: the single (dataset, participant, tag) with the most test windows.",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="Decision threshold for probability->0/1 (e.g. 0.4). Applied to the confusion "
+        "matrix, printed metrics, and the recording-strip 'decision' row. ROC/PR curves "
+        "are threshold-independent by construction and unaffected.",
+    )
     parser.add_argument("--out-dir", type=Path, default=Path("checkpoints/plots/window_inference"))
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
@@ -394,16 +520,26 @@ def main() -> None:
     models: dict[str, WindowClassifier] = {}
     for path, name in zip(args.checkpoints, names):
         model, _ = load_window_classifier(
-            path, n_channels, args.time_architecture, args.resnet_base_width, args.head_hidden_dim, args.head_dropout
+            path,
+            n_channels,
+            args.time_architecture,
+            args.resnet_base_width,
+            args.head_hidden_dim,
+            args.head_dropout,
         )
         models[name] = model
 
     print("\n  Loading finetune_test ...")
     test_index = load_index(args.processed_root, "finetune_test", None, args.seed, args.dataset)
-    print(f"  Test: {len(test_index):,} windows  |  {test_index['participant'].nunique()} participants")
+    print(
+        f"  Test: {len(test_index):,} windows  |  {test_index['participant'].nunique()} participants"
+    )
     test_loader = DataLoader(
-        WindowDataset(test_index.sort_values("segment_path").reset_index(drop=True), with_label=True),
-        batch_size=128, shuffle=False,
+        WindowDataset(
+            test_index.sort_values("segment_path").reset_index(drop=True), with_label=True
+        ),
+        batch_size=128,
+        shuffle=False,
     )
 
     print("\n  [1/3] Running inference on the full test set ...")
@@ -411,17 +547,25 @@ def main() -> None:
     for name, model in models.items():
         r = infer_test_set(model, test_loader)
         m = metrics_from_probs(r["probs"], r["labels"], args.threshold)
-        print(f"    [{name}] f1={m['f1']:.3f}  prec={m['precision']:.3f}  rec={m['recall']:.3f}  auc={m['auc']:.3f}  acc={m['accuracy']:.3f}")
+        print(
+            f"    [{name}] f1={m['f1']:.3f}  prec={m['precision']:.3f}  rec={m['recall']:.3f}  auc={m['auc']:.3f}  acc={m['accuracy']:.3f}"
+        )
         results[name] = r
 
-    print(f"\n  [2/3] Plotting metrics comparison + embedding space  (threshold={args.threshold:.2f}) ...")
+    print(
+        f"\n  [2/3] Plotting metrics comparison + embedding space  (threshold={args.threshold:.2f}) ..."
+    )
     plot_metrics_comparison(results, args.out_dir / "window_metrics_comparison.png", args.threshold)
     plot_embedding_space(results, args.out_dir / "embedding_space.png")
 
     print("\n  [3/3] Plotting recording(s)' window-level predictions ...")
     plot_recording_predictions(
-        models, test_index, args.out_dir,
-        args.recording_dataset, args.participant, args.threshold,
+        models,
+        test_index,
+        args.out_dir,
+        args.recording_dataset,
+        args.participant,
+        args.threshold,
     )
 
     print(f"\n  Plots saved to  {args.out_dir}/")

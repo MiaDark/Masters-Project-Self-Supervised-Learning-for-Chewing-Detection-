@@ -131,5 +131,7 @@ def synthetic_interim_tree(tmp_path):
     for i in range(1, 4):
         make_interim_segment(root, "Office_eating_s05", f"p0{i}", n_samples=300, seed=30 + i)
     for i in range(1, 4):
-        make_interim_segment(root, "Spectacle_NonMeal", f"p0{i}_snippet001", n_samples=300, seed=40 + i)
+        make_interim_segment(
+            root, "Spectacle_NonMeal", f"p0{i}_snippet001", n_samples=300, seed=40 + i
+        )
     return root

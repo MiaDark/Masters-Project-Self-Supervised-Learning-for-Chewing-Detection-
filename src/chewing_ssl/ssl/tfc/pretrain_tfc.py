@@ -69,7 +69,12 @@ from chewing_ssl.ssl.models.contrastive import nt_xent_loss
 from chewing_ssl.ssl.models.frequency_encoder import FrequencyEncoder
 from chewing_ssl.ssl.models.projection_head import ProjectionHead
 from chewing_ssl.common.tracking.mlflow_utils import log_metrics, log_params, start_run
-from chewing_ssl.ssl.masked.pretrain import MODEL_KWARGS, load_index, pick_device, shuffle_by_segment
+from chewing_ssl.ssl.masked.pretrain import (
+    MODEL_KWARGS,
+    load_index,
+    pick_device,
+    shuffle_by_segment,
+)
 from chewing_ssl.common.utils.config import load_augmentation_config
 from chewing_ssl.common.utils.seed import set_seed
 
@@ -108,7 +113,9 @@ def run_epoch(
 
             x_time_aug = apply_time_domain_augmentation(x, augmentation_config)
             x_freq = to_frequency(x)
-            x_freq_aug = apply_frequency_domain_augmentation(x_freq, augmentation_config, n_time, fs)
+            x_freq_aug = apply_frequency_domain_augmentation(
+                x_freq, augmentation_config, n_time, fs
+            )
 
             z_time_orig = time_proj(time_encoder.encode(x))
             z_time_aug = time_proj(time_encoder.encode(x_time_aug))
@@ -141,11 +148,20 @@ def run_epoch(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Pretrain via the TF-C (time-frequency consistency) approach.")
+    parser = argparse.ArgumentParser(
+        description="Pretrain via the TF-C (time-frequency consistency) approach."
+    )
     parser.add_argument("--time-architecture", default="cnn", choices=list(ARCHITECTURES))
-    parser.add_argument("--dataset", default=None, help="Restrict to one dataset. Default: all datasets.")
+    parser.add_argument(
+        "--dataset", default=None, help="Restrict to one dataset. Default: all datasets."
+    )
     parser.add_argument("--processed-root", type=Path, default=Path("data/processed"))
-    parser.add_argument("--augmentation-config", type=Path, default=None, help="Defaults to configs/augmentation.yaml.")
+    parser.add_argument(
+        "--augmentation-config",
+        type=Path,
+        default=None,
+        help="Defaults to configs/augmentation.yaml.",
+    )
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("checkpoints/pretrain_tfc"))
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=128)
@@ -165,9 +181,15 @@ def main() -> None:
     set_seed(args.seed)
     device = pick_device(args.device)
     augmentation_config = (
-        load_augmentation_config(args.augmentation_config) if args.augmentation_config else load_augmentation_config()
+        load_augmentation_config(args.augmentation_config)
+        if args.augmentation_config
+        else load_augmentation_config()
     )
-    loss_weights = {"time": args.weight_time, "freq": args.weight_freq, "consistency": args.weight_consistency}
+    loss_weights = {
+        "time": args.weight_time,
+        "freq": args.weight_freq,
+        "consistency": args.weight_consistency,
+    }
 
     print(f"\n{'=' * 60}")
     print("  Pretext task : TF-C (time-frequency consistency)")
@@ -175,21 +197,35 @@ def main() -> None:
     print(f"  Dataset      : {args.dataset or 'all'}")
     print(f"  Device       : {device}")
     print(f"  Epochs       : {args.epochs}  |  Batch size: {args.batch_size}  |  LR: {args.lr}")
-    print(f"  Loss weights : time={args.weight_time}  freq={args.weight_freq}  consistency={args.weight_consistency}")
+    print(
+        f"  Loss weights : time={args.weight_time}  freq={args.weight_freq}  consistency={args.weight_consistency}"
+    )
     print(f"{'=' * 60}")
 
-    train_index = load_index(args.processed_root, "pretrain_train", args.max_train_windows, args.seed, args.dataset)
-    val_index = load_index(args.processed_root, "pretrain_val", args.max_val_windows, args.seed, args.dataset)
-    print(f"  Train : {len(train_index):>7,} windows  |  {train_index['participant'].nunique()} participants")
-    print(f"  Val   : {len(val_index):>7,} windows  |  {val_index['participant'].nunique()} participants")
+    train_index = load_index(
+        args.processed_root, "pretrain_train", args.max_train_windows, args.seed, args.dataset
+    )
+    val_index = load_index(
+        args.processed_root, "pretrain_val", args.max_val_windows, args.seed, args.dataset
+    )
+    print(
+        f"  Train : {len(train_index):>7,} windows  |  {train_index['participant'].nunique()} participants"
+    )
+    print(
+        f"  Val   : {len(val_index):>7,} windows  |  {val_index['participant'].nunique()} participants"
+    )
 
     n_channels = len(SENSOR_CHANNELS)
     time_encoder = ARCHITECTURES[args.time_architecture](
         n_channels=n_channels, **MODEL_KWARGS[args.time_architecture]
     ).to(device)
     freq_encoder = FrequencyEncoder(n_channels=n_channels).to(device)
-    time_proj = ProjectionHead(time_encoder.embedding_dim, output_dim=args.projection_dim).to(device)
-    freq_proj = ProjectionHead(freq_encoder.embedding_dim, output_dim=args.projection_dim).to(device)
+    time_proj = ProjectionHead(time_encoder.embedding_dim, output_dim=args.projection_dim).to(
+        device
+    )
+    freq_proj = ProjectionHead(freq_encoder.embedding_dim, output_dim=args.projection_dim).to(
+        device
+    )
 
     all_params = (
         list(time_encoder.parameters())
@@ -203,8 +239,12 @@ def main() -> None:
     optimizer = torch.optim.AdamW(all_params, lr=args.lr)
 
     val_loader = DataLoader(
-        WindowDataset(val_index.sort_values("segment_path").reset_index(drop=True), with_label=False),
-        batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
+        WindowDataset(
+            val_index.sort_values("segment_path").reset_index(drop=True), with_label=False
+        ),
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
     )
 
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -241,26 +281,50 @@ def main() -> None:
             shuffled = shuffle_by_segment(train_index, args.seed + epoch)
             train_loader = DataLoader(
                 WindowDataset(shuffled, with_label=False),
-                batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
+                batch_size=args.batch_size,
+                shuffle=False,
+                num_workers=args.num_workers,
             )
 
             epoch_label = f"epoch {epoch + 1}/{args.epochs}"
             train_m = run_epoch(
-                time_encoder, freq_encoder, time_proj, freq_proj, train_loader, device,
-                augmentation_config, args.temperature, loss_weights, optimizer, epoch_label,
+                time_encoder,
+                freq_encoder,
+                time_proj,
+                freq_proj,
+                train_loader,
+                device,
+                augmentation_config,
+                args.temperature,
+                loss_weights,
+                optimizer,
+                epoch_label,
             )
             val_m = run_epoch(
-                time_encoder, freq_encoder, time_proj, freq_proj, val_loader, device,
-                augmentation_config, args.temperature, loss_weights, None, epoch_label,
+                time_encoder,
+                freq_encoder,
+                time_proj,
+                freq_proj,
+                val_loader,
+                device,
+                augmentation_config,
+                args.temperature,
+                loss_weights,
+                None,
+                epoch_label,
             )
             dt = time.time() - t0
 
             log_metrics(
                 {
-                    "train_loss": train_m["loss"], "train_loss_time": train_m["time"],
-                    "train_loss_freq": train_m["freq"], "train_loss_consistency": train_m["consistency"],
-                    "val_loss": val_m["loss"], "val_loss_time": val_m["time"],
-                    "val_loss_freq": val_m["freq"], "val_loss_consistency": val_m["consistency"],
+                    "train_loss": train_m["loss"],
+                    "train_loss_time": train_m["time"],
+                    "train_loss_freq": train_m["freq"],
+                    "train_loss_consistency": train_m["consistency"],
+                    "val_loss": val_m["loss"],
+                    "val_loss_time": val_m["time"],
+                    "val_loss_freq": val_m["freq"],
+                    "val_loss_consistency": val_m["consistency"],
                 },
                 step=epoch,
             )

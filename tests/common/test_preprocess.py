@@ -21,7 +21,13 @@ from chewing_ssl.common.data.preprocess import (
 
 
 def test_sensor_channels_is_five_raw_plus_five_derivative():
-    assert RAW_CHANNELS == ["accel_x", "accel_y", "accel_z", "nav_x_left_temple", "nav_y_left_temple"]
+    assert RAW_CHANNELS == [
+        "accel_x",
+        "accel_y",
+        "accel_z",
+        "nav_x_left_temple",
+        "nav_y_left_temple",
+    ]
     assert len(RAW_CHANNELS) == 5
     assert DERIVATIVE_CHANNELS == [f"{c}_d1" for c in RAW_CHANNELS]
     assert SENSOR_CHANNELS == RAW_CHANNELS + DERIVATIVE_CHANNELS
@@ -91,7 +97,9 @@ def test_add_derivative_channels_skips_missing_channels():
 
 
 def test_select_columns_without_label():
-    df = pd.DataFrame({"datetime": pd.date_range("2024-01-01", periods=3, freq="20ms"), "accel_x": [1, 2, 3]})
+    df = pd.DataFrame(
+        {"datetime": pd.date_range("2024-01-01", periods=3, freq="20ms"), "accel_x": [1, 2, 3]}
+    )
     out = select_columns(df)
     assert "label" not in out.columns
 

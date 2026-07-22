@@ -72,10 +72,14 @@ class FusionProjectionHead(nn.Module):
     """Small MLP for the already-flat Kernel-PCA-fused vector -- unlike
     ProjectionHead, there's no (B, T, D) sequence here to mean-pool first."""
 
-    def __init__(self, input_dim: int, output_dim: int = PROJECTION_OUTPUT_DIM, hidden_dim: int | None = None):
+    def __init__(
+        self, input_dim: int, output_dim: int = PROJECTION_OUTPUT_DIM, hidden_dim: int | None = None
+    ):
         super().__init__()
         hidden_dim = hidden_dim or input_dim
-        self.net = nn.Sequential(nn.Linear(input_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, output_dim))
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, output_dim)
+        )
 
     def forward(self, fused: torch.Tensor) -> torch.Tensor:
         return self.net(fused)
@@ -124,10 +128,19 @@ def run_epoch(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Pretrain via the TF-FC (Kernel-PCA fusion) approach.")
-    parser.add_argument("--dataset", default=None, help="Restrict to one dataset. Default: all datasets.")
+    parser = argparse.ArgumentParser(
+        description="Pretrain via the TF-FC (Kernel-PCA fusion) approach."
+    )
+    parser.add_argument(
+        "--dataset", default=None, help="Restrict to one dataset. Default: all datasets."
+    )
     parser.add_argument("--processed-root", type=Path, default=Path("data/processed"))
-    parser.add_argument("--augmentation-config", type=Path, default=None, help="Defaults to configs/augmentation.yaml.")
+    parser.add_argument(
+        "--augmentation-config",
+        type=Path,
+        default=None,
+        help="Defaults to configs/augmentation.yaml.",
+    )
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("checkpoints/pretrain_tffc"))
     parser.add_argument("--resnet-base-width", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=10)
@@ -145,7 +158,9 @@ def main() -> None:
     set_seed(args.seed)
     device = pick_device(args.device)
     augmentation_config = (
-        load_augmentation_config(args.augmentation_config) if args.augmentation_config else load_augmentation_config()
+        load_augmentation_config(args.augmentation_config)
+        if args.augmentation_config
+        else load_augmentation_config()
     )
     n_components = augmentation_config["kernel_pca"]["n_components"]
     if args.batch_size <= n_components:
@@ -165,24 +180,40 @@ def main() -> None:
     print(f"  Fused view dim : {fused_dim}  (2 * kernel_pca.n_components)")
     print(f"{'=' * 60}")
 
-    train_index = load_index(args.processed_root, "pretrain_train", args.max_train_windows, args.seed, args.dataset)
-    val_index = load_index(args.processed_root, "pretrain_val", args.max_val_windows, args.seed, args.dataset)
-    print(f"  Train : {len(train_index):>7,} windows  |  {train_index['participant'].nunique()} participants")
-    print(f"  Val   : {len(val_index):>7,} windows  |  {val_index['participant'].nunique()} participants")
+    train_index = load_index(
+        args.processed_root, "pretrain_train", args.max_train_windows, args.seed, args.dataset
+    )
+    val_index = load_index(
+        args.processed_root, "pretrain_val", args.max_val_windows, args.seed, args.dataset
+    )
+    print(
+        f"  Train : {len(train_index):>7,} windows  |  {train_index['participant'].nunique()} participants"
+    )
+    print(
+        f"  Val   : {len(val_index):>7,} windows  |  {val_index['participant'].nunique()} participants"
+    )
 
-    encoder = ResNet1D(n_channels=len(SENSOR_CHANNELS), base_width=args.resnet_base_width).to(device)
+    encoder = ResNet1D(n_channels=len(SENSOR_CHANNELS), base_width=args.resnet_base_width).to(
+        device
+    )
     proj = ProjectionHead(encoder.embedding_dim, output_dim=args.projection_dim).to(device)
     fusion_proj = FusionProjectionHead(fused_dim, output_dim=args.projection_dim).to(device)
 
-    all_params = list(encoder.parameters()) + list(proj.parameters()) + list(fusion_proj.parameters())
+    all_params = (
+        list(encoder.parameters()) + list(proj.parameters()) + list(fusion_proj.parameters())
+    )
     n_params = sum(p.numel() for p in all_params)
     print(f"  Params (encoder + both projection heads): {n_params:,}")
 
     optimizer = torch.optim.AdamW(all_params, lr=args.lr)
 
     val_loader = DataLoader(
-        WindowDataset(val_index.sort_values("segment_path").reset_index(drop=True), with_label=False),
-        batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
+        WindowDataset(
+            val_index.sort_values("segment_path").reset_index(drop=True), with_label=False
+        ),
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
         drop_last=True,  # same KernelPCA n_components constraint as the train loader
     )
 
@@ -220,23 +251,43 @@ def main() -> None:
             shuffled = shuffle_by_segment(train_index, args.seed + epoch)
             train_loader = DataLoader(
                 WindowDataset(shuffled, with_label=False),
-                batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
+                batch_size=args.batch_size,
+                shuffle=False,
+                num_workers=args.num_workers,
                 drop_last=True,  # a smaller final batch shifts KernelPCA's n_components (see fuse_time_frequency)
             )
 
             epoch_label = f"epoch {epoch + 1}/{args.epochs}"
             train_m = run_epoch(
-                encoder, proj, fusion_proj, train_loader, device, augmentation_config, args.temperature, optimizer, epoch_label
+                encoder,
+                proj,
+                fusion_proj,
+                train_loader,
+                device,
+                augmentation_config,
+                args.temperature,
+                optimizer,
+                epoch_label,
             )
             val_m = run_epoch(
-                encoder, proj, fusion_proj, val_loader, device, augmentation_config, args.temperature, None, epoch_label
+                encoder,
+                proj,
+                fusion_proj,
+                val_loader,
+                device,
+                augmentation_config,
+                args.temperature,
+                None,
+                epoch_label,
             )
             dt = time.time() - t0
 
             log_metrics({"train_loss": train_m["loss"], "val_loss": val_m["loss"]}, step=epoch)
             print(f"  train_loss={train_m['loss']:.4f}  val_loss={val_m['loss']:.4f}  ({dt:.1f}s)")
 
-            history.append({"epoch": epoch, "train_loss": train_m["loss"], "val_loss": val_m["loss"]})
+            history.append(
+                {"epoch": epoch, "train_loss": train_m["loss"], "val_loss": val_m["loss"]}
+            )
 
             if val_m["loss"] < best_val_loss:
                 best_val_loss = val_m["loss"]

@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -36,9 +37,6 @@ import torch.nn.functional as F
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-import warnings
-warnings.filterwarnings("ignore", message="An output with one or more elements was resized")
-
 
 from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS
 from chewing_ssl.common.data.windowing import WindowDataset
@@ -47,8 +45,15 @@ from chewing_ssl.ssl.models.augmentation import to_frequency
 from chewing_ssl.ssl.models.finetune_head import WindowClassifierHead
 from chewing_ssl.ssl.models.frequency_encoder import FrequencyEncoder
 from chewing_ssl.ssl.models.resnet1d import ResNet1D
-from chewing_ssl.ssl.masked.pretrain import MODEL_KWARGS, load_index, pick_device, shuffle_by_segment
+from chewing_ssl.ssl.masked.pretrain import (
+    MODEL_KWARGS,
+    load_index,
+    pick_device,
+    shuffle_by_segment,
+)
 from chewing_ssl.common.utils.seed import set_seed
+
+warnings.filterwarnings("ignore", message="An output with one or more elements was resized")
 
 
 class ContrastivePretrainedEncoder(nn.Module):
@@ -70,7 +75,9 @@ class ContrastivePretrainedEncoder(nn.Module):
             self.freq_encoder.load_state_dict(checkpoint["freq_encoder_state_dict"])
             self.embedding_dim = checkpoint["time_embedding_dim"] + checkpoint["freq_embedding_dim"]
         elif self.pretext_task == "tffc":
-            self.encoder = ResNet1D(n_channels=n_channels, base_width=checkpoint["resnet_base_width"])
+            self.encoder = ResNet1D(
+                n_channels=n_channels, base_width=checkpoint["resnet_base_width"]
+            )
             self.encoder.load_state_dict(checkpoint["encoder_state_dict"])
             self.embedding_dim = checkpoint["embedding_dim"]
         else:
@@ -98,7 +105,9 @@ class WindowClassifier(nn.Module):
     def __init__(self, encoder: ContrastivePretrainedEncoder, hidden_dim: int, dropout: float):
         super().__init__()
         self.encoder = encoder
-        self.head = WindowClassifierHead(encoder.embedding_dim, hidden_dim=hidden_dim, dropout=dropout)
+        self.head = WindowClassifierHead(
+            encoder.embedding_dim, hidden_dim=hidden_dim, dropout=dropout
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.encoder.embed(x))
@@ -172,19 +181,33 @@ def print_metrics(metrics: dict, prefix: str = "") -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fine-tune a window-level classifier on a TF-C/TF-FC checkpoint.")
-    parser.add_argument("--checkpoint", type=Path, required=True,
-                         help="From pretrain_tfc.py or pretrain_tffc.py (pretext_task auto-detected).")
-    parser.add_argument("--dataset", default=None, help="Restrict to one dataset. Default: all datasets.")
+    parser = argparse.ArgumentParser(
+        description="Fine-tune a window-level classifier on a TF-C/TF-FC checkpoint."
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        required=True,
+        help="From pretrain_tfc.py or pretrain_tffc.py (pretext_task auto-detected).",
+    )
+    parser.add_argument(
+        "--dataset", default=None, help="Restrict to one dataset. Default: all datasets."
+    )
     parser.add_argument("--processed-root", type=Path, default=Path("data/processed"))
     parser.add_argument("--out-dir", type=Path, default=Path("checkpoints/finetune_window"))
     parser.add_argument("--head-hidden-dim", type=int, default=64)
     parser.add_argument("--head-dropout", type=float, default=0.3)
-    parser.add_argument("--phase1-epochs", type=int, default=5, help="Epochs with encoder(s) frozen.")
-    parser.add_argument("--phase2-epochs", type=int, default=10, help="Epochs with encoder(s) unfrozen.")
+    parser.add_argument(
+        "--phase1-epochs", type=int, default=5, help="Epochs with encoder(s) frozen."
+    )
+    parser.add_argument(
+        "--phase2-epochs", type=int, default=10, help="Epochs with encoder(s) unfrozen."
+    )
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--head-lr", type=float, default=1e-3)
-    parser.add_argument("--encoder-lr", type=float, default=1e-4, help="10x lower than head-lr by default.")
+    parser.add_argument(
+        "--encoder-lr", type=float, default=1e-4, help="10x lower than head-lr by default."
+    )
     parser.add_argument("--max-train-windows", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default=None)
@@ -205,24 +228,38 @@ def main() -> None:
     print(f"  Dataset      : {args.dataset or 'all'}")
     print(f"  Device       : {device}")
     print(f"  Phase 1      : {args.phase1_epochs} epochs (encoder frozen, head_lr={args.head_lr})")
-    print(f"  Phase 2      : {args.phase2_epochs} epochs (encoder_lr={args.encoder_lr}, head_lr={args.head_lr})")
+    print(
+        f"  Phase 2      : {args.phase2_epochs} epochs (encoder_lr={args.encoder_lr}, head_lr={args.head_lr})"
+    )
     print(f"{'=' * 60}\n")
 
-    train_index = load_index(args.processed_root, "finetune_train", args.max_train_windows, args.seed, args.dataset)
+    train_index = load_index(
+        args.processed_root, "finetune_train", args.max_train_windows, args.seed, args.dataset
+    )
     val_index = load_index(args.processed_root, "finetune_val", None, args.seed, args.dataset)
-    print(f"  Train : {len(train_index):>7,} windows  |  {train_index['participant'].nunique()} participants")
-    print(f"  Val   : {len(val_index):>7,} windows  |  {val_index['participant'].nunique()} participants\n")
+    print(
+        f"  Train : {len(train_index):>7,} windows  |  {train_index['participant'].nunique()} participants"
+    )
+    print(
+        f"  Val   : {len(val_index):>7,} windows  |  {val_index['participant'].nunique()} participants\n"
+    )
 
     val_loader = DataLoader(
-        WindowDataset(val_index.sort_values("segment_path").reset_index(drop=True), with_label=True),
-        batch_size=args.batch_size, shuffle=False,
+        WindowDataset(
+            val_index.sort_values("segment_path").reset_index(drop=True), with_label=True
+        ),
+        batch_size=args.batch_size,
+        shuffle=False,
     )
 
     # Class balance from the train split's window-level (majority-vote) labels,
     # for BCE pos_weight -- same convention as finetune.py.
     train_loader_probe = DataLoader(
-        WindowDataset(train_index.sort_values("segment_path").reset_index(drop=True), with_label=True),
-        batch_size=512, shuffle=False,
+        WindowDataset(
+            train_index.sort_values("segment_path").reset_index(drop=True), with_label=True
+        ),
+        batch_size=512,
+        shuffle=False,
     )
     n_pos, n_total = 0, 0
     for _, y in train_loader_probe:
@@ -230,7 +267,9 @@ def main() -> None:
         n_pos += int(wl.sum().item())
         n_total += len(wl)
     pos_weight = torch.tensor([(n_total - n_pos) / max(n_pos, 1)], dtype=torch.float32)
-    print(f"  Train window-level class balance: {n_pos}/{n_total} positive  (pos_weight={pos_weight.item():.2f})\n")
+    print(
+        f"  Train window-level class balance: {n_pos}/{n_total} positive  (pos_weight={pos_weight.item():.2f})\n"
+    )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     best_val_f1 = -1.0
@@ -257,7 +296,9 @@ def main() -> None:
 
         shuffled = shuffle_by_segment(train_index, args.seed + epoch)
         train_loader = DataLoader(
-            WindowDataset(shuffled, with_label=True), batch_size=args.batch_size, shuffle=False,
+            WindowDataset(shuffled, with_label=True),
+            batch_size=args.batch_size,
+            shuffle=False,
         )
 
         train_m = run_epoch(model, train_loader, device, optimizer, pos_weight, epoch_label)
