@@ -10,9 +10,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from chewing_ssl.data.eda import discover_recordings, find_bouts
-from chewing_ssl.data.loaders import load_recording
-from chewing_ssl.data.preprocess import (
+from chewing_ssl.common.data.eda import discover_recordings, find_bouts
+from chewing_ssl.common.data.loaders import load_recording
+from chewing_ssl.common.data.preprocess import (
     BUTTER_CUTOFF_HZ,
     BUTTER_ORDER,
     DEFAULT_TARGET_HZ,
@@ -149,7 +149,7 @@ def main() -> None:
         print(f"Wrote {args.out}")
         return
 
-    from chewing_ssl.utils.config import load_preprocessing_config
+    from chewing_ssl.common.utils.config import load_preprocessing_config
 
     datasets = args.datasets.split(",") if args.datasets else load_preprocessing_config()["datasets"]
     channels = args.channels.split(",")

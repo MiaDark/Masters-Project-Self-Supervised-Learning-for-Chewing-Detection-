@@ -30,7 +30,6 @@ import time
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -200,7 +199,7 @@ def main() -> None:
     model = WindowClassifier(encoder, args.head_hidden_dim, args.head_dropout).to(device)
 
     print(f"\n{'=' * 60}")
-    print(f"  Fine-tuning window-level chewing classifier")
+    print("  Fine-tuning window-level chewing classifier")
     print(f"  Pretext task : {encoder.pretext_task}  (from {args.checkpoint})")
     print(f"  Embedding dim: {encoder.embedding_dim}")
     print(f"  Dataset      : {args.dataset or 'all'}")

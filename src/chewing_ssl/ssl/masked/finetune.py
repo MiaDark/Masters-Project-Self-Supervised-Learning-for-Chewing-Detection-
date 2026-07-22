@@ -292,7 +292,7 @@ def main() -> None:
     device = pick_device(args.device)
 
     print(f"\n{'=' * 60}")
-    print(f"  Fine-tuning BiGRU for chewing detection")
+    print("  Fine-tuning BiGRU for chewing detection")
     print(f"  Checkpoint   : {args.checkpoint}")
     print(f"  Dataset      : {args.dataset}")
     print(f"  Device       : {device}")

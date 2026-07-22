@@ -1,7 +1,7 @@
 """
 Clip accelerometer/navigation columns in the raw sensor_data CSVs.
 Values outside the valid range for a sensor type are clamped to the nearest
-bound (not dropped), matching chewing_ssl.data.eda.clip_signal_ranges but
+bound (not dropped), matching chewing_ssl.common.data.eda.clip_signal_ranges but
 applied directly to the on-disk CSVs (in their original, per-dataset column
 naming) instead of only the in-memory frame used for plotting.
 """
@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from chewing_ssl.data.analyze_data import is_nav_debug_column, prefix_of
-from chewing_ssl.data.eda import SIGNAL_CLIP_RANGES
+from chewing_ssl.common.data.analyze_data import is_nav_debug_column, prefix_of
+from chewing_ssl.common.data.eda import SIGNAL_CLIP_RANGES
 
 ACCEL_RANGE = SIGNAL_CLIP_RANGES["accel_"]
 NAV_RANGE = SIGNAL_CLIP_RANGES["nav_"]

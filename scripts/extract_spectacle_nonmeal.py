@@ -4,7 +4,7 @@ datasets (SIPM/Sussex/FEIT/Office)
 
   1. Target duration = total meal recording time across SIPMEatingStudy,
      SussexEatingUK, FEIT_eating_S05, Office_eating_s05.
-  2. "Non-meal" = outside every chewing bout (chewing_ssl.data.eda.find_bouts
+  2. "Non-meal" = outside every chewing bout (chewing_ssl.common.data.eda.find_bouts
      on the unified `label` column), padded by --pad-minutes on each side to
      also exclude pre/post-meal handling that isn't itself labeled chewing.
   3. Snippets are drawn round-robin across participants (not just days), each
@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from chewing_ssl.data.eda import discover_recordings, find_bouts
-from chewing_ssl.data.loaders import read_header
+from chewing_ssl.common.data.eda import discover_recordings, find_bouts
+from chewing_ssl.common.data.loaders import read_header
 
 MEAL_DATASETS = ["SIPMEatingStudy", "SussexEatingUK", "FEIT_eating_S05", "Office_eating_s05"]
 MEAL_ROOT = Path("src/chewing_ssl/data/data/raw_unscaled")

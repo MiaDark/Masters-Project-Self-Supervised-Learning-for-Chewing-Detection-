@@ -158,7 +158,7 @@ def main() -> None:
     fused_dim = 2 * n_components
 
     print(f"\n{'=' * 60}")
-    print(f"  Pretext task   : TF-FC (Kernel-PCA fusion)")
+    print("  Pretext task   : TF-FC (Kernel-PCA fusion)")
     print(f"  Encoder        : resnet1d (base_width={args.resnet_base_width})")
     print(f"  Dataset        : {args.dataset or 'all'}")
     print(f"  Device         : {device}")

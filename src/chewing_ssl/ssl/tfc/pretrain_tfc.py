@@ -170,7 +170,7 @@ def main() -> None:
     loss_weights = {"time": args.weight_time, "freq": args.weight_freq, "consistency": args.weight_consistency}
 
     print(f"\n{'=' * 60}")
-    print(f"  Pretext task : TF-C (time-frequency consistency)")
+    print("  Pretext task : TF-C (time-frequency consistency)")
     print(f"  Time encoder : {args.time_architecture}  |  Freq encoder: frequency_encoder")
     print(f"  Dataset      : {args.dataset or 'all'}")
     print(f"  Device       : {device}")

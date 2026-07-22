@@ -64,7 +64,7 @@ from chewing_ssl.ssl.models import ARCHITECTURES
 from chewing_ssl.ssl.models.frequency_encoder import FrequencyEncoder
 from chewing_ssl.ssl.models.resnet1d import ResNet1D
 from chewing_ssl.ssl.tfc.finetune_window import ContrastivePretrainedEncoder, WindowClassifier, window_labels
-from chewing_ssl.ssl.masked.pretrain import MODEL_KWARGS, load_index, pick_device
+from chewing_ssl.ssl.masked.pretrain import MODEL_KWARGS, load_index
 
 PALETTE = {"non_chewing": "#90A4AE", "chewing": "#E65100"}
 CKPT_COLORS = ["#1565C0", "#C62828", "#2E7D32", "#6A1B9A"]

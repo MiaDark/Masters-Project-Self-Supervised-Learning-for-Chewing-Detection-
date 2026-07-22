@@ -7,10 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from chewing_ssl.data.analyze_data import is_nav_debug_column, prefix_of
-from chewing_ssl.data.eda import discover_recordings
-from chewing_ssl.data.loaders import read_header
-from scripts.extract_spectacle_nonmeal import OUT_ROOT, SPECTACLE_ROOT, non_meal_intervals, scan_spectacle
+from chewing_ssl.common.data.analyze_data import is_nav_debug_column, prefix_of
+from scripts.extract_spectacle_nonmeal import OUT_ROOT, scan_spectacle
 
 ACCEL_DIVISOR = 417.53312946
 NAV_DIVISOR = 240
