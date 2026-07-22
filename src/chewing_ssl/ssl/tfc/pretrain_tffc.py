@@ -44,16 +44,13 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from pathlib import Path
 import warnings
-warnings.filterwarnings("ignore", message="An output with one or more elements was resized")
-
+from pathlib import Path
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
 
 from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS
 from chewing_ssl.common.data.windowing import WindowDataset
@@ -65,6 +62,8 @@ from chewing_ssl.common.tracking.mlflow_utils import log_metrics, log_params, st
 from chewing_ssl.ssl.masked.pretrain import load_index, pick_device, shuffle_by_segment
 from chewing_ssl.common.utils.config import load_augmentation_config
 from chewing_ssl.common.utils.seed import set_seed
+
+warnings.filterwarnings("ignore", message="An output with one or more elements was resized")
 
 PROJECTION_OUTPUT_DIM = 128
 
