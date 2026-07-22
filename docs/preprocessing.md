@@ -75,7 +75,7 @@ model is normalized with) — but assigning splits requires knowing what
 recordings/participants exist, which requires the raw-scale interim tree to
 exist. That ordering dependency is why normalization isn't in `preprocess.py`
 (which runs first and only knows about one recording at a time) — it's
-`chewing_ssl.data.refit_global_norm`'s job, run after `windowing.py` has
+`chewing_ssl.common.data.refit_global_norm`'s job, run after `windowing.py` has
 produced `splits.json`. Concretely, three steps:
 
 1. `preprocess.py` → raw-scale (filtered + derivative, unnormalized)

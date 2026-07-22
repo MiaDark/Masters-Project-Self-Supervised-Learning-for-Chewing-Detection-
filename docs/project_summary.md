@@ -184,7 +184,7 @@ this stage, the model needs a proxy task, and that task is "recognize that a
 perturbed copy of a window is still fundamentally the same signal, and tell
 it apart from unrelated windows."
 
-Implemented in `models/augmentation.py`, parameters in
+Implemented in `ssl/models/augmentation.py`, parameters in
 `configs/augmentation.yaml`. Two families, each applied independently with
 25% probability per window per training step (https://zitniklab.hms.harvard.edu/projects/TF-C/ and https://www.researchgate.net/publication/392838366_TFFC_time-frequency_fusion_consistency_for_semi-supervised_time_series_classification):
 
@@ -211,7 +211,7 @@ then either inverse-transform back to time domain or use directly):
 Two different training recipes consume these augmentations, implemented so
 they can be compared directly against each other:
 
-**TF-C** (`training/pretrain_tfc.py`) uses *two separate encoders* — one
+**TF-C** (`ssl/tfc/pretrain_tfc.py`) uses *two separate encoders* — one
 processing the raw time-domain window, one processing its frequency
 spectrum (a new architecture, `FrequencyEncoder`, since none of the existing
 encoders accept complex-valued input). Per batch: the original window and
@@ -225,7 +225,7 @@ should end up close together in a shared embedding space, with every other
 window in the batch as a negative example. The three losses are summed
 (equally weighted by default) and backpropagated through both encoders.
 
-**TF-FC** (`training/pretrain_tffc.py`) uses one encoder (a 3-layer 1D
+**TF-FC** (`ssl/tfc/pretrain_tffc.py`) uses one encoder (a 3-layer 1D
 ResNet, per that paper's architecture) and a different fusion mechanism:
 time-domain and frequency-domain augmented views are each flattened and
 passed through Kernel PCA independently, then concatenated into one fused

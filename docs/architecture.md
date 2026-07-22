@@ -6,13 +6,18 @@ All importable logic lives in `src/chewing_ssl/`.
 
 ```
 src/chewing_ssl/
-├── data/          # S3 download, preprocessing, dataset/windowing
-├── models/        # multimodal encoder, SSL pretext heads, detection head
-├── training/      # pretrain.py (SSL), finetune.py (chewing detection)
-├── uncertainty/   # MC-Dropout inference
-├── energy/        # per-sensor energy model + accuracy/energy trade-off
-├── tracking/      # MLflow helpers (consistent run logging)
-└── utils/         # config loading, seeding
+├── common/            # shared by both pipelines
+│   ├── data/          # S3 download, preprocessing, dataset/windowing
+│   ├── evaluation/    # bout extraction/matching, postprocessing
+│   ├── tracking/      # MLflow helpers (consistent run logging)
+│   └── utils/         # config loading, seeding
+├── classical_ml/      # feature-based (sklearn) pipeline
+├── ssl/               # self-supervised pipeline
+│   ├── models/        # multimodal encoder, SSL pretext heads, detection head
+│   ├── masked/        # variant 1: masked-reconstruction pretraining + finetune.py
+│   └── tfc/           # variants 2 & 3: TF-C / TF-FC contrastive pretraining
+├── uncertainty/       # MC-Dropout inference
+└── energy/            # per-sensor energy model + accuracy/energy trade-off
 ```
 
 ## SSL Pretraining Plan Layout
@@ -35,7 +40,7 @@ input.
 
 ```
 S3 (emteq-data)
-   │  chewing_ssl.data.download
+   │  chewing_ssl.common.data.download
    ▼
 data/raw/        # exactly as downloaded, per-dataset structure preserved
    │  preprocessing: sync modalities, filter, normalise
@@ -92,7 +97,7 @@ the same gap-segmentation and resampling (done once, cached, then normalized).
 
 ### Windowing (interim -> processed)
 
-Implemented in `chewing_ssl.data.windowing`.
+Implemented in `chewing_ssl.common.data.windowing`.
 
 1. **Pretext tasks need a bounded unit to operate on.** Masked reconstruction
    needs a defined span to hide and reconstruct; cross-sensor prediction
@@ -163,7 +168,7 @@ this naming overlap is cosmetic, not a leakage risk).
 
 ## Reproducibility
 
-- Every run seeds all RNGs via `chewing_ssl.utils.seed.set_seed` and logs the
+- Every run seeds all RNGs via `chewing_ssl.common.utils.seed.set_seed` and logs the
   seed and config to MLflow.
 - Configs live in `configs/` and are passed as arguments — hyper-parameters are
   never hard-coded.

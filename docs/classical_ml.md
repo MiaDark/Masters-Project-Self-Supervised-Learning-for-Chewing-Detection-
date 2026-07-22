@@ -9,14 +9,14 @@ features per window and trains a standard classifier directly.
 Five scripts, run in this order:
 
 ```bash
-python -m chewing_ssl.data.segment_ml          --stride-seconds 2.0
-python -m chewing_ssl.data.extract_ml_features
-python -m chewing_ssl.training.train_ml         --model random_forest
-python -m chewing_ssl.training.upscale_predictions --model-path checkpoints/train_ml/random_forest.joblib --window-seconds 4.0
-python -m chewing_ssl.training.evaluate_ml_bouts
+python -m chewing_ssl.classical_ml.segment          --stride-seconds 2.0
+python -m chewing_ssl.classical_ml.extract_features
+python -m chewing_ssl.classical_ml.train         --model random_forest
+python -m chewing_ssl.classical_ml.upscale_predictions --model-path checkpoints/train_ml/random_forest.joblib --window-seconds 4.0
+python -m chewing_ssl.classical_ml.evaluate_bouts
 ```
 
-## 1. Segmentation (`chewing_ssl.data.segment_ml`)
+## 1. Segmentation (`chewing_ssl.classical_ml.segment`)
 
 Windowing.py's `WindowDataset` stores a lightweight *index* (segment file +
 sample range) and slices the real window out of a cached parquet at access
@@ -50,7 +50,7 @@ Output: `data/processed/ml_segments/{purpose}_X.npy` (float32,
 | val | 18,272 | 30 | 29.1% |
 | test | 20,508 | 34 | 28.7% |
 
-## 2. Feature extraction (`chewing_ssl.data.extract_ml_features`)
+## 2. Feature extraction (`chewing_ssl.classical_ml.extract_features`)
 
 Each window's `(10, 200)` array becomes an 850-dimensional feature vector
 using `emteqai.utils.features` drivers, applied per-channel:
@@ -79,7 +79,7 @@ Output: `data/processed/ml_features/{purpose}.parquet`, one row per window,
 start, label`). Shapes: train `(56735, 856)`, val `(18272, 856)`, test
 `(20508, 856)`.
 
-## 3. Model training (`chewing_ssl.training.train_ml`)
+## 3. Model training (`chewing_ssl.classical_ml.train`)
 
 `Pipeline(StandardScaler, classifier)` — scaling is a no-op for tree models
 but required for `logistic_regression`, and one code path handles every
@@ -173,7 +173,7 @@ checked (`checkpoints/plots/ml_predictions/all/`).
 ## 6. Does this pipeline need postprocessing? (bout-level investigation)
 
 The deep-learning path already has a postprocessing module
-(`chewing_ssl.training.postprocess`: hysteresis thresholding → gap-filling →
+(`chewing_ssl.common.evaluation.postprocess`: hysteresis thresholding → gap-filling →
 minimum-duration filtering) and a bout-level evaluator
 (`evaluate_bouts.py`, IoU-matching between predicted and ground-truth
 chewing bouts). `evaluate_ml_bouts.py` reuses both — `extract_bouts`/
@@ -197,7 +197,7 @@ doesn't look like noisy per-timestep deep-learning predictions would.
 **Applying the existing postprocessing defaults makes it worse:**
 
 ```
-python -m chewing_ssl.training.evaluate_ml_bouts
+python -m chewing_ssl.classical_ml.evaluate_bouts
 
   raw (threshold only)                      prec=0.592  rec=0.374  f1=0.458  median_iou=0.577  GT=944 pred=596
   postprocessed (hysteresis+gapfill+mindur) prec=0.674  rec=0.254  f1=0.369  median_iou=0.612  GT=944 pred=356

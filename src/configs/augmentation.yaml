@@ -1,0 +1,78 @@
+# TF-C-style contrastive augmentation parameters (decision 004). Applied
+# per-batch, at training time, to already-preprocessed/normalized windows --
+# not a preprocessing step. Edit this to experiment with different strengths
+# rather than touching augmentation.py directly. See docs/preprocessing.md
+# (pipeline order) and docs/decisions/004_contrastive_pretext_task.md.
+#
+# Grounding for the defaults below:
+#   - window_len/target_hz: from configs/preprocessing.yaml (4s @ 50Hz = 200
+#     samples) -- must match, since augmentation operates on windowed output.
+#   - jitter/scaling/masking/frequency-ratio magnitudes: the TF-C paper's own
+#     published defaults. These transfer directly because both the paper's
+#     benchmarks and our windows are already z-normalized (mean 0, std 1 per
+#     channel) by the time augmentation runs -- there's no unit-scale
+#     mismatch to correct for.
+#   - permutation n_segments: NOT from the paper (unspecified) -- derived
+#     from this project's own data. Chewing fundamental ~1.5-2 Hz (see
+#     docs/data.md PSD analysis) = ~25-33 samples/cycle at 50 Hz. 8 segments
+#     of 25 samples (~0.5s each) roughly aligns with one-chew-cycle-sized
+#     chunks: permutation disrupts between-cycle order while mostly keeping
+#     within-cycle structure intact, rather than shattering finer detail.
+#   - low_pass cutoff_hz: deliberately different from preprocessing's 8.0 Hz
+#     (configs/preprocessing.yaml) -- reusing the same cutoff here would be a
+#     no-op (nothing left in that band to remove). 4.0 Hz is still above the
+#     ~1.5-2 Hz chewing fundamental so it doesn't erase the core signal, but
+#     low enough to be a meaningfully different, real perturbation.
+
+window_len: 200
+target_hz: 50.0
+
+# Each enabled augmentation is applied independently with this probability
+# per training instance (TF-C paper: p=0.25), composed sequentially in the
+# order listed under time_domain / frequency_domain if more than one fires.
+apply_probability: 0.25
+
+time_domain:
+  jitter:
+    enabled: true
+    sigma: 0.01        # additive Gaussian noise std, in normalized-channel units
+  scaling:
+    enabled: true
+    mean: 1.0
+    sigma: 0.1         # multiplicative factor ~ N(mean, sigma), one scalar per channel per window
+  permutation:
+    enabled: true
+    n_segments: 8      # see grounding note above
+  masking:
+    enabled: true
+    mask_ratio: 0.1    # fraction of timesteps zeroed, in contiguous spans -- NOT the same
+                        # knob as models/masking.py's span_mask_ratio=0.4 reconstruction
+                        # target (that's a much larger, task-defining mask; this is a mild
+                        # augmentation perturbation)
+    mask_value: 0.0    # 0.0 = the per-channel mean on normalized data, same rationale as
+                        # models/masking.py's learnable mask token discussion
+
+frequency_domain:
+  low_pass:
+    enabled: true
+    cutoff_hz: 4.0     # see grounding note above -- intentionally != preprocessing's 8.0 Hz
+  phase_shift:
+    enabled: true
+    max_shift_rad: 3.14159265358979  # +/- pi, per the paper
+  remove_frequency:
+    enabled: true
+    ratio: 0.1         # fraction of frequency bins zeroed
+  add_frequency:
+    enabled: true
+    ratio: 0.1         # fraction of frequency bins perturbed
+    add_scale: 0.1     # injected magnitude, relative to that bin's existing amplitude scale
+
+# Kernel-PCA fusion of the flattened time-augmented and frequency-augmented
+# views (see augmentation.py's module docstring for the output-shape caveat
+# this leaves open for the training-loop integration).
+kernel_pca:
+  kernel: rbf
+  n_components: 64
+  gamma: null   # null -> sklearn default (1 / n_features)
+
+seed: 42

@@ -23,7 +23,7 @@ with — not replacing — the masked-reconstruction task from decision 001. Bot
 tasks train the same shared encoder; final loss is a weighted sum of the
 masked-reconstruction MSE and a contrastive term.
 
-Augmentations (`chewing_ssl.models.augmentation`) are applied per-batch, at
+Augmentations (`chewing_ssl.ssl.models.augmentation`) are applied per-batch, at
 training time, on top of already-preprocessed, normalized windows — not a
 preprocessing step (see `docs/preprocessing.md`). Parameters live in
 `configs/augmentation.yaml` for empirical tuning per decision 001's original
