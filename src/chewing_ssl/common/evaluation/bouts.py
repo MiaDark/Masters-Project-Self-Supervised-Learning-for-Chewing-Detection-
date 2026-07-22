@@ -23,14 +23,24 @@ def extract_bouts(binary: np.ndarray, fs: float = 50.0, min_dur: float = 0.5) ->
         elif not v and in_bout:
             dur = (i - start) / fs
             if dur >= min_dur:
-                bouts.append(dict(start_s=start / fs, end_s=i / fs,
-                                   duration_s=dur, start_idx=start, end_idx=i))
+                bouts.append(
+                    dict(
+                        start_s=start / fs, end_s=i / fs, duration_s=dur, start_idx=start, end_idx=i
+                    )
+                )
             in_bout = False
     if in_bout:
         dur = (len(binary) - start) / fs
         if dur >= min_dur:
-            bouts.append(dict(start_s=start / fs, end_s=len(binary) / fs,
-                               duration_s=dur, start_idx=start, end_idx=len(binary)))
+            bouts.append(
+                dict(
+                    start_s=start / fs,
+                    end_s=len(binary) / fs,
+                    duration_s=dur,
+                    start_idx=start,
+                    end_idx=len(binary),
+                )
+            )
     return bouts
 
 
@@ -46,14 +56,19 @@ def match_bouts(gt: list[dict], pred: list[dict], iou_thresh: float = 0.3) -> di
     Returns dict with keys: tp, fp, fn, matches (list of matched pairs with iou).
     """
     pairs = sorted(
-        [(gi, pi, _iou(g, p)) for gi, g in enumerate(gt)
-         for pi, p in enumerate(pred) if _iou(g, p) >= iou_thresh],
+        [
+            (gi, pi, _iou(g, p))
+            for gi, g in enumerate(gt)
+            for pi, p in enumerate(pred)
+            if _iou(g, p) >= iou_thresh
+        ],
         key=lambda x: -x[2],
     )
     used_gt, used_pred, matches = set(), set(), []
     for gi, pi, score in pairs:
         if gi not in used_gt and pi not in used_pred:
-            used_gt.add(gi); used_pred.add(pi)
+            used_gt.add(gi)
+            used_pred.add(pi)
             matches.append({"gt": gt[gi], "pred": pred[pi], "iou": score})
 
     return {

@@ -5,6 +5,7 @@ script undoes that for the Acc/Nav columns by multiplying back by the same
 divisor, and writes the result to a parallel output tree (originals are left
 untouched).
 """
+
 import argparse
 from pathlib import Path
 
@@ -28,8 +29,7 @@ def revert_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str], list[str]
     nav_cols = [
         c
         for c in df.columns
-        if NAV_PREFIX in c
-        and not any(kw in c.lower() for kw in NAV_DEBUG_KEYWORDS)
+        if NAV_PREFIX in c and not any(kw in c.lower() for kw in NAV_DEBUG_KEYWORDS)
     ]
 
     if accel_cols:

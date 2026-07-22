@@ -26,6 +26,7 @@ from pathlib import Path
 
 import joblib
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -78,7 +79,9 @@ def print_metrics(metrics: dict, prefix: str = "") -> None:
     )
 
 
-def plot_feature_importance(pipeline: Pipeline, feature_names: list[str], model_name: str, out_path: Path, top_n: int = 30) -> None:
+def plot_feature_importance(
+    pipeline: Pipeline, feature_names: list[str], model_name: str, out_path: Path, top_n: int = 30
+) -> None:
     model = pipeline.named_steps["model"]
     if hasattr(model, "feature_importances_"):
         importance = model.feature_importances_
@@ -105,7 +108,9 @@ def plot_feature_importance(pipeline: Pipeline, feature_names: list[str], model_
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train a classical ML baseline for window-level chewing detection.")
+    parser = argparse.ArgumentParser(
+        description="Train a classical ML baseline for window-level chewing detection."
+    )
     parser.add_argument("--features-dir", type=Path, default=Path("data/processed/ml_features"))
     parser.add_argument("--model", choices=list(MODELS), default="random_forest")
     parser.add_argument("--threshold", type=float, default=0.5)
@@ -120,7 +125,9 @@ def main() -> None:
     X_train, y_train, _ = load_split(args.features_dir, "train")
     X_val, y_val, _ = load_split(args.features_dir, "val")
     X_test, y_test, _ = load_split(args.features_dir, "test")
-    print(f"  Train : {len(y_train):,} windows x {X_train.shape[1]} features  ({y_train.mean():.1%} positive)")
+    print(
+        f"  Train : {len(y_train):,} windows x {X_train.shape[1]} features  ({y_train.mean():.1%} positive)"
+    )
     print(f"  Val   : {len(y_val):,} windows  ({y_val.mean():.1%} positive)")
     print(f"  Test  : {len(y_test):,} windows  ({y_test.mean():.1%} positive)")
 
@@ -144,11 +151,18 @@ def main() -> None:
     print(f"\n  Saved model -> {model_path}")
 
     metrics_path = args.out_dir / f"{args.model}_metrics.json"
-    metrics_path.write_text(json.dumps({"val": val_metrics, "test": test_metrics, "threshold": args.threshold}, indent=2))
+    metrics_path.write_text(
+        json.dumps(
+            {"val": val_metrics, "test": test_metrics, "threshold": args.threshold}, indent=2
+        )
+    )
     print(f"  Saved metrics -> {metrics_path}")
 
     plot_feature_importance(
-        pipeline, list(X_train.columns), args.model, args.out_dir / f"{args.model}_feature_importance.png"
+        pipeline,
+        list(X_train.columns),
+        args.model,
+        args.out_dir / f"{args.model}_feature_importance.png",
     )
 
     print(f"\n{'=' * 60}\n")

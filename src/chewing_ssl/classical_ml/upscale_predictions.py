@@ -41,7 +41,9 @@ from chewing_ssl.common.data.windowing import TARGET_HZ, WINDOW_LEN
 from chewing_ssl.classical_ml.train import META_COLUMNS
 
 
-def upscale_recording(probs: np.ndarray, starts: np.ndarray, window_len: int, threshold: float) -> pd.DataFrame:
+def upscale_recording(
+    probs: np.ndarray, starts: np.ndarray, window_len: int, threshold: float
+) -> pd.DataFrame:
     """probs/starts: (n_windows,) for ONE recording's windows -> per-timestep DataFrame."""
     n_rows = int(starts.max()) + window_len
     prob_sum = np.zeros(n_rows, dtype=np.float64)
@@ -55,17 +57,23 @@ def upscale_recording(probs: np.ndarray, starts: np.ndarray, window_len: int, th
     pred_prob = np.full(n_rows, np.nan)
     pred_prob[covered] = prob_sum[covered] / coverage[covered]
 
-    return pd.DataFrame(
-        {
-            "row_idx": np.arange(n_rows),
-            "pred_prob": pred_prob,
-            "pred_label": (pred_prob >= threshold).astype(float),
-            "n_windows_covering": coverage,
-        }
-    ).loc[covered].reset_index(drop=True)
+    return (
+        pd.DataFrame(
+            {
+                "row_idx": np.arange(n_rows),
+                "pred_prob": pred_prob,
+                "pred_label": (pred_prob >= threshold).astype(float),
+                "n_windows_covering": coverage,
+            }
+        )
+        .loc[covered]
+        .reset_index(drop=True)
+    )
 
 
-def run(model_path: Path, features_path: Path, out_dir: Path, window_len: int, threshold: float) -> None:
+def run(
+    model_path: Path, features_path: Path, out_dir: Path, window_len: int, threshold: float
+) -> None:
     pipeline = joblib.load(model_path)
     df = pd.read_parquet(features_path)
 
@@ -96,8 +104,13 @@ def run(model_path: Path, features_path: Path, out_dir: Path, window_len: int, t
         upscaled.to_parquet(out_path, index=False)
         manifest_rows.append(
             {
-                "dataset": dataset, "participant": participant, "tag": tag, "segment": segment,
-                "n_windows": len(group), "n_rows": len(upscaled), "out_path": str(out_path),
+                "dataset": dataset,
+                "participant": participant,
+                "tag": tag,
+                "segment": segment,
+                "n_windows": len(group),
+                "n_rows": len(upscaled),
+                "out_path": str(out_path),
             }
         )
         print(
@@ -108,17 +121,28 @@ def run(model_path: Path, features_path: Path, out_dir: Path, window_len: int, t
     manifest = pd.DataFrame(manifest_rows)
     manifest_path = out_dir / "manifest.csv"
     manifest.to_csv(manifest_path, index=False)
-    print(f"\nDone. {len(manifest)} recording(s) written to {out_dir}/  (see {manifest_path} for identities)")
+    print(
+        f"\nDone. {len(manifest)} recording(s) written to {out_dir}/  (see {manifest_path} for identities)"
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-path", type=Path, required=True, help="From train_ml.py, e.g. checkpoints/train_ml/random_forest.joblib")
-    parser.add_argument("--features-path", type=Path, default=Path("data/processed/ml_features/test.parquet"))
     parser.add_argument(
-        "--window-seconds", type=float, default=None,
+        "--model-path",
+        type=Path,
+        required=True,
+        help="From train_ml.py, e.g. checkpoints/train_ml/random_forest.joblib",
+    )
+    parser.add_argument(
+        "--features-path", type=Path, default=Path("data/processed/ml_features/test.parquet")
+    )
+    parser.add_argument(
+        "--window-seconds",
+        type=float,
+        default=None,
         help="Must match whatever segment_ml.py --window-seconds was used to build --features-path. "
-             "Default: configs/preprocessing.yaml's value (segment_ml.py's own default).",
+        "Default: configs/preprocessing.yaml's value (segment_ml.py's own default).",
     )
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--out", type=Path, default=Path("data/processed/ml_predictions_upscaled"))

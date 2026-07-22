@@ -5,6 +5,7 @@ bound (not dropped), matching chewing_ssl.common.data.eda.clip_signal_ranges but
 applied directly to the on-disk CSVs (in their original, per-dataset column
 naming) instead of only the in-memory frame used for plotting.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -55,14 +56,19 @@ DATASET_CLIP_SPECS: dict[str, dict] = {
 }
 
 
-def clip_file(path: Path, spec: dict, dry_run: bool = False) -> tuple[list[str], list[str], list[str]]:
+def clip_file(
+    path: Path, spec: dict, dry_run: bool = False
+) -> tuple[list[str], list[str], list[str]]:
     df = pd.read_csv(path, low_memory=False)
 
     if spec.get("canonical"):
         accel_cols = [c for c in df.columns if prefix_of(c) == "Accelerometer"]
-        nav_cols = [c for c in df.columns if prefix_of(c) == "Navigation" and not is_nav_debug_column(c)]
+        nav_cols = [
+            c for c in df.columns if prefix_of(c) == "Navigation" and not is_nav_debug_column(c)
+        ]
         prox_cols = [c for c in df.columns if prefix_of(c) == "Proximity"]
     else:
+
         def matched(prefix: str) -> list[str]:
             return [
                 c

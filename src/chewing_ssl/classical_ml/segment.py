@@ -22,13 +22,19 @@ def window_label(label_slice: np.ndarray, threshold: float = 0.5) -> float:
     return float(label_slice.mean() >= threshold)
 
 
-def segment_recording(seg_path: Path, window_len: int, stride: int) -> tuple[np.ndarray, np.ndarray, list[int]]:
+def segment_recording(
+    seg_path: Path, window_len: int, stride: int
+) -> tuple[np.ndarray, np.ndarray, list[int]]:
     """One segment parquet -> (X, y, starts) for every full, labeled window in it.
     X: (n, len(SENSOR_CHANNELS), window_len). Segments without a label column,
     or shorter than one window, contribute nothing (empty arrays)."""
     df = pd.read_parquet(seg_path)
     if "label" not in df.columns or len(df) < window_len:
-        return np.empty((0, len(SENSOR_CHANNELS), window_len), dtype=np.float32), np.empty((0,), dtype=np.float32), []
+        return (
+            np.empty((0, len(SENSOR_CHANNELS), window_len), dtype=np.float32),
+            np.empty((0,), dtype=np.float32),
+            [],
+        )
 
     channels = df[SENSOR_CHANNELS].to_numpy(dtype=np.float32)  # (n_samples, n_channels)
     labels = df["label"].to_numpy(dtype=np.float32)
@@ -41,7 +47,11 @@ def segment_recording(seg_path: Path, window_len: int, stride: int) -> tuple[np.
         starts.append(start)
 
     if not xs:
-        return np.empty((0, len(SENSOR_CHANNELS), window_len), dtype=np.float32), np.empty((0,), dtype=np.float32), []
+        return (
+            np.empty((0, len(SENSOR_CHANNELS), window_len), dtype=np.float32),
+            np.empty((0,), dtype=np.float32),
+            [],
+        )
     return np.stack(xs), np.array(ys, dtype=np.float32), starts
 
 
@@ -76,7 +86,13 @@ def run(interim_root: Path, splits_path: Path, out_dir: Path, window_len: int, s
                 # (dataset, participant, tag, start) key.
                 segment = seg_path.stem
                 by_purpose[purpose]["meta"].extend(
-                    {"dataset": dataset, "participant": participant, "tag": tag, "segment": segment, "start": s}
+                    {
+                        "dataset": dataset,
+                        "participant": participant,
+                        "tag": tag,
+                        "segment": segment,
+                        "start": s,
+                    }
                     for s in starts
                 )
 
@@ -105,9 +121,13 @@ def main() -> None:
     parser.add_argument("--interim-root", type=Path, default=Path("data/interim_normalized"))
     parser.add_argument("--splits", type=Path, default=Path("data/processed/splits.json"))
     parser.add_argument("--out", type=Path, default=Path("data/processed/ml_segments"))
-    parser.add_argument("--window-seconds", type=float, default=None, help="Default: configs/preprocessing.yaml.")
     parser.add_argument(
-        "--stride-seconds", type=float, default=None,
+        "--window-seconds", type=float, default=None, help="Default: configs/preprocessing.yaml."
+    )
+    parser.add_argument(
+        "--stride-seconds",
+        type=float,
+        default=None,
         help="Default: same as --window-seconds (non-overlapping). Set smaller for overlapping windows.",
     )
     args = parser.parse_args()
@@ -120,7 +140,9 @@ def main() -> None:
     print("\nMaterialized ML segmentation")
     print("=" * 60)
     print(f"  Window length : {window_len} samples ({window_len / TARGET_HZ:.1f}s)")
-    print(f"  Stride        : {stride} samples ({'non-overlapping' if stride >= window_len else 'overlapping'})")
+    print(
+        f"  Stride        : {stride} samples ({'non-overlapping' if stride >= window_len else 'overlapping'})"
+    )
     print(f"  Channels      : {len(SENSOR_CHANNELS)} ({', '.join(SENSOR_CHANNELS)})")
     print("=" * 60)
 

@@ -52,14 +52,18 @@ def plot_loss_curves(histories: dict, out_path: Path) -> None:
         ax_train.plot(epochs, train_loss, color=colour, label=label, linewidth=2)
         ax_val.plot(epochs, val_loss, color=colour, label=label, linewidth=2)
 
-    for ax, title in zip([ax_train, ax_val], ["Training loss (masked MSE)", "Validation loss (masked MSE)"]):
+    for ax, title in zip(
+        [ax_train, ax_val], ["Training loss (masked MSE)", "Validation loss (masked MSE)"]
+    ):
         ax.set_xlabel("Epoch")
         ax.set_ylabel("MSE (masked positions only, z-scored signal)")
         ax.set_title(title)
         ax.legend()
         ax.grid(alpha=0.3)
 
-    fig.suptitle("Masked reconstruction pretraining — loss curves\n(personal normalization, 200K train windows)")
+    fig.suptitle(
+        "Masked reconstruction pretraining — loss curves\n(personal normalization, 200K train windows)"
+    )
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
@@ -77,12 +81,16 @@ def plot_channel_losses(histories: dict, out_path: Path) -> None:
     for offset, (arch, history) in zip(offsets, histories.items()):
         final = history[-1]["val_per_channel"]
         vals = [final.get(c, float("nan")) for c in channels]
-        ax.bar(x + offset, vals, width, label=ARCH_LABELS[arch], color=ARCH_COLOURS[arch], alpha=0.85)
+        ax.bar(
+            x + offset, vals, width, label=ARCH_LABELS[arch], color=ARCH_COLOURS[arch], alpha=0.85
+        )
 
     ax.set_xticks(x)
     ax.set_xticklabels([CHANNEL_LABELS[c] for c in channels], rotation=30, ha="right")
     ax.set_ylabel("Val MSE (masked positions only)")
-    ax.set_title("Per-channel reconstruction error at final epoch\n(lower = this channel was easier to reconstruct from context)")
+    ax.set_title(
+        "Per-channel reconstruction error at final epoch\n(lower = this channel was easier to reconstruct from context)"
+    )
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
     fig.tight_layout()
@@ -95,7 +103,9 @@ def print_summary(histories: dict) -> None:
     print("\n" + "=" * 70)
     print(f"{'Architecture':<18} {'Best val loss':>15} {'Final val loss':>15} {'Epochs':>8}")
     print("-" * 70)
-    for arch, history in sorted(histories.items(), key=lambda kv: min(r["val_loss"] for r in kv[1])):
+    for arch, history in sorted(
+        histories.items(), key=lambda kv: min(r["val_loss"] for r in kv[1])
+    ):
         best = min(r["val_loss"] for r in history)
         final = history[-1]["val_loss"]
         n = len(history)
@@ -107,7 +117,10 @@ def print_summary(histories: dict) -> None:
     print(f"{'Channel':<22} " + " ".join(f"{ARCH_LABELS[a]:>18}" for a in histories))
     print("-" * (22 + 19 * len(histories)))
     for c in all_channels:
-        vals = {arch: history[-1]["val_per_channel"].get(c, float("nan")) for arch, history in histories.items()}
+        vals = {
+            arch: history[-1]["val_per_channel"].get(c, float("nan"))
+            for arch, history in histories.items()
+        }
         best_arch = min(vals, key=vals.get)
         row = f"{CHANNEL_LABELS[c]:<22} "
         for arch in histories:
@@ -126,7 +139,9 @@ def main() -> None:
 
     histories = load_history(args.checkpoint_dir, args.variant)
     if not histories:
-        raise SystemExit(f"No history.json files found under {args.checkpoint_dir}. Run pretrain.py first.")
+        raise SystemExit(
+            f"No history.json files found under {args.checkpoint_dir}. Run pretrain.py first."
+        )
 
     print(f"Loaded histories for: {list(histories)}")
     plot_loss_curves(histories, args.out / "loss_curves.png")

@@ -108,7 +108,7 @@ def summarize(df: pd.DataFrame, label_col: str = "label") -> dict:
         "n_rows": len(df),
         "duration_minutes": (df["datetime"].max() - df["datetime"].min()).total_seconds() / 60,
         "columns": sorted(df.columns),
-        #"sampling": sampling_diagnostics(df["datetime"]),
+        # "sampling": sampling_diagnostics(df["datetime"]),
         "missing_fraction": {
             c: float(df[c].isna().mean()) for c in df.columns if df[c].isna().any()
         },
@@ -151,7 +151,11 @@ def _panels_for(df: pd.DataFrame) -> list[tuple[str, list[str]]]:
 
 
 def plot_timeseries(
-    df: pd.DataFrame, out_path: Path, title: str, label_col: str = "label", max_points: int = 200_000
+    df: pd.DataFrame,
+    out_path: Path,
+    title: str,
+    label_col: str = "label",
+    max_points: int = 200_000,
 ) -> None:
     panels = _panels_for(df)
     if not panels:
@@ -196,7 +200,9 @@ def plot_zoom(
     plot_timeseries(window, out_path, title, label_col=label_col, max_points=200_000)
 
 
-def plot_class_balance(df: pd.DataFrame, out_path: Path, title: str, label_col: str = "label") -> None:
+def plot_class_balance(
+    df: pd.DataFrame, out_path: Path, title: str, label_col: str = "label"
+) -> None:
     if label_col not in df.columns:
         return
     counts = df[label_col].fillna(0).value_counts().sort_index()
@@ -212,7 +218,9 @@ def plot_class_balance(df: pd.DataFrame, out_path: Path, title: str, label_col: 
     plt.close(fig)
 
 
-def plot_bout_durations(df: pd.DataFrame, out_path: Path, title: str, label_col: str = "label") -> None:
+def plot_bout_durations(
+    df: pd.DataFrame, out_path: Path, title: str, label_col: str = "label"
+) -> None:
     if label_col not in df.columns:
         return
     bouts = find_bouts(df[label_col], df["datetime"])
@@ -347,7 +355,9 @@ def _flatten_summary(dataset: str, tag: str, summary: dict) -> dict:
     sampling = summary.get("sampling", {})
     bout = summary.get("bout_duration_s", {})
     dead = [
-        c for c, v in summary.get("dead_channels", {}).items() if v.get("likely_dead_or_disconnected")
+        c
+        for c, v in summary.get("dead_channels", {}).items()
+        if v.get("likely_dead_or_disconnected")
     ]
     balance = summary.get("label_balance", {})
     n_pos = sum(v for k, v in balance.items() if float(k) == 1.0)
@@ -389,7 +399,9 @@ def run_batch(datasets: list[str], root: Path, out_root: Path, zoom_minutes: flo
             print(f"Wrote {agg_path}")
 
 
-def run(dataset: str, path: Path, out_dir: Path, tag: str, zoom_minutes: float, verbose: bool = True) -> dict:
+def run(
+    dataset: str, path: Path, out_dir: Path, tag: str, zoom_minutes: float, verbose: bool = True
+) -> dict:
     df = load_recording(dataset, path)
     df = clip_signal_ranges(df)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -399,13 +411,11 @@ def run(dataset: str, path: Path, out_dir: Path, tag: str, zoom_minutes: float, 
 
     title_prefix = f"{dataset} / {tag}"
     plot_timeseries(df, out_dir / "overview.png", f"{title_prefix} - overview")
-    #plot_zoom(df, out_dir / "zoom.png", f"{title_prefix} - zoom on longest bout", pad_minutes=zoom_minutes)
-    #plot_class_balance(df, out_dir / "class_balance.png", f"{title_prefix} - label balance")
-    #plot_bout_durations(df, out_dir / "bout_durations.png", f"{title_prefix} - bout durations")
-    #plot_sampling_intervals(df, out_dir / "sampling_intervals.png", f"{title_prefix} - sampling intervals")
+    # plot_zoom(df, out_dir / "zoom.png", f"{title_prefix} - zoom on longest bout", pad_minutes=zoom_minutes)
+    # plot_class_balance(df, out_dir / "class_balance.png", f"{title_prefix} - label balance")
+    # plot_bout_durations(df, out_dir / "bout_durations.png", f"{title_prefix} - bout durations")
+    # plot_sampling_intervals(df, out_dir / "sampling_intervals.png", f"{title_prefix} - sampling intervals")
 
-    fs = summary.get("sampling", {}).get("estimated_hz")
-    
     if verbose:
         print(json.dumps(summary, indent=2, default=str))
     print(f"Wrote plots and summary.json to {out_dir}")
@@ -432,22 +442,31 @@ def main() -> None:
     parser.add_argument("--tag", default=None, help="Subfolder name; defaults to the file stem.")
     parser.add_argument("--zoom-minutes", type=float, default=3.0)
     parser.add_argument(
-        "--all", action="store_true", help="Run over every recording found under --root for --dataset(s)."
+        "--all",
+        action="store_true",
+        help="Run over every recording found under --root for --dataset(s).",
     )
     parser.add_argument(
-        "--root", type=Path, default=Path("data/raw"), help="Root containing the per-dataset folders."
+        "--root",
+        type=Path,
+        default=Path("data/raw"),
+        help="Root containing the per-dataset folders.",
     )
     args = parser.parse_args()
 
     if args.all:
-        datasets = [args.dataset] if args.dataset else [
-            "SIPMEatingStudy",
-            "SussexEatingUK",
-            "Spectacle",
-            "DiverseNormative",
-            "FEIT_eating_S05",
-            "Office_eating_s05",
-        ]
+        datasets = (
+            [args.dataset]
+            if args.dataset
+            else [
+                "SIPMEatingStudy",
+                "SussexEatingUK",
+                "Spectacle",
+                "DiverseNormative",
+                "FEIT_eating_S05",
+                "Office_eating_s05",
+            ]
+        )
         run_batch(datasets, args.root, args.out, args.zoom_minutes)
         return
 

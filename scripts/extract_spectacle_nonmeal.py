@@ -11,6 +11,7 @@ datasets (SIPM/Sussex/FEIT/Office)
      day capped at --cap-minutes per pass, so the result isn't dominated by
      a handful of people who happen to have long non-meal stretches.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -33,7 +34,9 @@ def meal_target_seconds() -> float:
     total = 0.0
     for ds in MEAL_DATASETS:
         for path, _tag in discover_recordings(ds, MEAL_ROOT):
-            ts_col = "Timestamp" if ds in ("SIPMEatingStudy", "SussexEatingUK") else "Software Timestamp"
+            ts_col = (
+                "Timestamp" if ds in ("SIPMEatingStudy", "SussexEatingUK") else "Software Timestamp"
+            )
             ts = pd.read_csv(path, usecols=[ts_col], low_memory=False)[ts_col]
             dur = float(ts.max() - ts.min())
             if ds in ("FEIT_eating_S05", "Office_eating_s05"):
@@ -53,7 +56,8 @@ def non_meal_intervals(
 
     pad = pd.Timedelta(minutes=pad_minutes)
     windows = sorted(
-        (max(day_start, b["start"] - pad), min(day_end, b["end"] + pad)) for _, b in bouts.iterrows()
+        (max(day_start, b["start"] - pad), min(day_end, b["end"] + pad))
+        for _, b in bouts.iterrows()
     )
     merged = [windows[0]]
     for s, e in windows[1:]:
@@ -78,7 +82,9 @@ def scan_spectacle(pad_minutes: float) -> dict[str, list[dict]]:
     labeled Spectacle day with nonzero non-meal time available."""
     by_participant: dict[str, list[dict]] = defaultdict(list)
     recordings = discover_recordings("Spectacle", SPECTACLE_ROOT)
-    print(f"Spectacle: {len(recordings)} day(s) found; scanning for Label column + non-meal time...")
+    print(
+        f"Spectacle: {len(recordings)} day(s) found; scanning for Label column + non-meal time..."
+    )
     for path, tag in recordings:
         if "Label" not in read_header(path):
             continue
@@ -192,17 +198,25 @@ def extract_snippets(chosen: list[dict], out_root: Path) -> list[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target-minutes", type=float, default=None, help="Override the computed target.")
+    parser.add_argument(
+        "--target-minutes", type=float, default=None, help="Override the computed target."
+    )
     parser.add_argument("--pad-minutes", type=float, default=5.0)
-    parser.add_argument("--cap-minutes", type=float, default=20.0, help="Max minutes drawn from one day per pass.")
+    parser.add_argument(
+        "--cap-minutes", type=float, default=20.0, help="Max minutes drawn from one day per pass."
+    )
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--dry-run", action="store_true", help="Select snippets and report, but don't write files.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Select snippets and report, but don't write files."
+    )
     args = parser.parse_args()
 
     target_seconds = (
         args.target_minutes * 60 if args.target_minutes is not None else meal_target_seconds()
     )
-    print(f"Target non-meal duration: {target_seconds / 60:.1f} min ({target_seconds / 3600:.2f} h)\n")
+    print(
+        f"Target non-meal duration: {target_seconds / 60:.1f} min ({target_seconds / 3600:.2f} h)\n"
+    )
 
     by_participant = scan_spectacle(args.pad_minutes)
     chosen = select_snippets(by_participant, target_seconds, args.cap_minutes, args.seed)

@@ -30,8 +30,13 @@ _ALIAS_LOOKUP: list[tuple[str, str]] = sorted(
 RAW_PREFIXES = set(MODALITY_ALIASES)
 DERIVED_PREFIXES = {"Expression", "Activity", "Stats", "Oco"}
 HOUSEKEEPING = {
-    "Battery", "RSSI", "DebugBits", "MicBits", "SoftwareTimestamp",
-    "LSLinletMarkers", "Annotations",
+    "Battery",
+    "RSSI",
+    "DebugBits",
+    "MicBits",
+    "SoftwareTimestamp",
+    "LSLinletMarkers",
+    "Annotations",
 }
 TIMESTAMP_COLUMNS = {"Timestamp", "Software Timestamp", "Hardware Timestamp"}
 NAV_DEBUG_KEYWORDS = ("iq", "shutter", "frame avg", "bright", "frameavg")
@@ -78,7 +83,7 @@ def site_of(col: str) -> str | None:
     rest = None
     for token in MODALITY_ALIASES[modality]:
         if _matches_token(col, token) and col != token:
-            rest = col[len(token):].strip()
+            rest = col[len(token) :].strip()
             break
     if rest is None:
         return None
@@ -179,7 +184,9 @@ def nav_activity(files: list[Path], columns: set[str]) -> dict[str, dict]:
     nav_data_cols = sorted(
         c
         for c in columns
-        if prefix_of(c) == "Navigation" and not is_nav_debug_column(c) and "Temple" in (site_of(c) or "")
+        if prefix_of(c) == "Navigation"
+        and not is_nav_debug_column(c)
+        and "Temple" in (site_of(c) or "")
     )
     if not nav_data_cols:
         return {}
@@ -257,8 +264,8 @@ def analyse(root: Path, do_rate: bool, rate_sample: int) -> dict:
             report["datasets"][ds] = {"n_files": 0}
             continue
 
-        schemas: Counter = Counter()       # distinct header tuples -> file count
-        col_counts: Counter = Counter()    # column -> n files containing it
+        schemas: Counter = Counter()  # distinct header tuples -> file count
+        col_counts: Counter = Counter()  # column -> n files containing it
         nav_sites: set[str] = set()
         prox_sites: set[str] = set()
 
@@ -293,9 +300,7 @@ def analyse(root: Path, do_rate: bool, rate_sample: int) -> dict:
             "nav_sites": sorted(nav_sites),
             "prox_sites": sorted(prox_sites),
             "nav_activity": nav_activity(files, set(col_counts)),
-            "sampling_rate_hz": (
-                f"{min(rates):.1f}-{max(rates):.1f}" if rates else None
-            ),
+            "sampling_rate_hz": (f"{min(rates):.1f}-{max(rates):.1f}" if rates else None),
         }
 
     report["matrix"] = {c: dict(d) for c, d in col_presence.items()}
@@ -318,9 +323,7 @@ def write_outputs(report: dict, out_dir: Path) -> None:
         w.writerow(["column", "category", "modality", *names])
         for col in sorted(report["matrix"]):
             counts = report["matrix"][col]
-            w.writerow(
-                [col, category_of(col), prefix_of(col), *[counts.get(n, 0) for n in names]]
-            )
+            w.writerow([col, category_of(col), prefix_of(col), *[counts.get(n, 0) for n in names]])
 
     # Per-site nav liveness (X/Y position channels only, debug cols excluded).
     nav_path = out_dir / "nav_activity.csv"
@@ -329,9 +332,11 @@ def write_outputs(report: dict, out_dir: Path) -> None:
         w.writerow(["dataset", "site", "side", "n_files", "n_files_dead", "always_active"])
         for ds, info in report["datasets"].items():
             for site, s in sorted(info.get("nav_activity", {}).items()):
-                w.writerow([ds, site, s["side"], s["n_files"], s["n_files_dead"], s["always_active"]])
+                w.writerow(
+                    [ds, site, s["side"], s["n_files"], s["n_files_dead"], s["always_active"]]
+                )
 
-    print(f"Wrote {matrix_path}, {nav_path} and {out_dir/'summary.json'}")
+    print(f"Wrote {matrix_path}, {nav_path} and {out_dir / 'summary.json'}")
 
 
 def print_summary(report: dict) -> None:
@@ -343,25 +348,34 @@ def print_summary(report: dict) -> None:
             continue
         print(f"\n[{ds}]")
         print(f"  files: {info['n_files']} | distinct header layouts: {info['n_distinct_schemas']}")
-        print(f"  columns (union): {info['n_columns_union']} | sampling rate: {info['sampling_rate_hz']}")
+        print(
+            f"  columns (union): {info['n_columns_union']} | sampling rate: {info['sampling_rate_hz']}"
+        )
         for cat in ("raw", "derived", "housekeeping", "label"):
             cols = info["columns_by_category"].get(cat, [])
-            print(f"    {cat:13s} ({len(cols):2d}): {', '.join(cols) if len(cols) <= 12 else ', '.join(cols[:12]) + ' ...'}")
+            print(
+                f"    {cat:13s} ({len(cols):2d}): {', '.join(cols) if len(cols) <= 12 else ', '.join(cols[:12]) + ' ...'}"
+            )
         print(f"    Nav (OMG) sites : {info['nav_sites']}")
         print(f"    Prox sites      : {info['prox_sites']}")
 
     present_in_all = [
-        c for c, counts in report["matrix"].items()
+        c
+        for c, counts in report["matrix"].items()
         if category_of(c) == "raw" and all(n in counts for n in names)
     ]
-    print("\n---- RAW SENSOR COLUMNS COMMON TO ALL DATASETS (literal name match; SSL input candidates) ----")
+    print(
+        "\n---- RAW SENSOR COLUMNS COMMON TO ALL DATASETS (literal name match; SSL input candidates) ----"
+    )
     print(f"  ({len(present_in_all)}): {', '.join(sorted(present_in_all))}")
 
     print_nav_side_comparison(report)
 
 
 def print_nav_side_comparison(report: dict) -> None:
-    print("\nNAVIGATION: LEFT vs RIGHT (active = never a dead/constant channel, in every recording)")
+    print(
+        "\nNAVIGATION: LEFT vs RIGHT (active = never a dead/constant channel, in every recording)"
+    )
     col_w = (20, 28, 14, 28, 14)
     header = (
         f"{'dataset':<{col_w[0]}} {'Left sites':<{col_w[1]}} {'Left active?':<{col_w[2]}} "
@@ -389,7 +403,9 @@ def main() -> None:
     parser.add_argument("--root", default="data/raw")
     parser.add_argument("--out", default="reports/schema")
     parser.add_argument("--rate", action="store_true", help="Estimate sampling rate (slower).")
-    parser.add_argument("--rate-sample", type=int, default=3, help="Files per dataset to sample for rate.")
+    parser.add_argument(
+        "--rate-sample", type=int, default=3, help="Files per dataset to sample for rate."
+    )
     args = parser.parse_args()
 
     report = analyse(Path(args.root), do_rate=args.rate, rate_sample=args.rate_sample)

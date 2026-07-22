@@ -43,21 +43,29 @@ def jitter(x: torch.Tensor, sigma: float, generator: torch.Generator | None = No
     return x + noise
 
 
-def scaling(x: torch.Tensor, mean: float, sigma: float, generator: torch.Generator | None = None) -> torch.Tensor:
+def scaling(
+    x: torch.Tensor, mean: float, sigma: float, generator: torch.Generator | None = None
+) -> torch.Tensor:
     """One scale factor ~ N(mean, sigma) per (batch item, channel), broadcast across time."""
     b, c, _ = x.shape
-    factor = torch.randn(b, c, 1, generator=generator, device=x.device, dtype=x.dtype) * sigma + mean
+    factor = (
+        torch.randn(b, c, 1, generator=generator, device=x.device, dtype=x.dtype) * sigma + mean
+    )
     return x * factor
 
 
-def permutation(x: torch.Tensor, n_segments: int, generator: torch.Generator | None = None) -> torch.Tensor:
+def permutation(
+    x: torch.Tensor, n_segments: int, generator: torch.Generator | None = None
+) -> torch.Tensor:
     """Split the time axis into n_segments chunks and shuffle their order,
     independently per batch item. The same permutation is applied to every
     channel at once, so cross-channel alignment within a chunk survives --
     only the between-chunk ordering is disrupted."""
     b, _, t = x.shape
     bounds = np.linspace(0, t, n_segments + 1, dtype=int)
-    spans = [(int(bounds[i]), int(bounds[i + 1])) for i in range(n_segments) if bounds[i + 1] > bounds[i]]
+    spans = [
+        (int(bounds[i]), int(bounds[i + 1])) for i in range(n_segments) if bounds[i + 1] > bounds[i]
+    ]
     out = torch.empty_like(x)
     for i in range(b):
         order = torch.randperm(len(spans), generator=generator).tolist()
@@ -134,7 +142,9 @@ def low_pass_freq(x_freq: torch.Tensor, cutoff_hz: float, fs: float, n_time: int
     return x_freq * mask
 
 
-def phase_shift(x_freq: torch.Tensor, max_shift_rad: float, generator: torch.Generator | None = None) -> torch.Tensor:
+def phase_shift(
+    x_freq: torch.Tensor, max_shift_rad: float, generator: torch.Generator | None = None
+) -> torch.Tensor:
     """Random phase offset, uniform in [-max_shift_rad, max_shift_rad], one
     value per (batch item, channel) applied to every frequency bin -- per the
     paper: "introduces a random value ranging from -pi to pi to the existing
@@ -144,7 +154,9 @@ def phase_shift(x_freq: torch.Tensor, max_shift_rad: float, generator: torch.Gen
     return x_freq * torch.exp(1j * shift)
 
 
-def remove_frequency(x_freq: torch.Tensor, ratio: float, generator: torch.Generator | None = None) -> torch.Tensor:
+def remove_frequency(
+    x_freq: torch.Tensor, ratio: float, generator: torch.Generator | None = None
+) -> torch.Tensor:
     """Zero `ratio` fraction of frequency bins, independent random mask per
     (batch item, channel, bin)."""
     keep = torch.rand(x_freq.shape, generator=generator, device=x_freq.device) >= ratio
@@ -167,12 +179,18 @@ FREQUENCY_DOMAIN_FNS = {
     "low_pass": lambda xf, cfg, n_time, fs, gen: low_pass_freq(xf, cfg["cutoff_hz"], fs, n_time),
     "phase_shift": lambda xf, cfg, n_time, fs, gen: phase_shift(xf, cfg["max_shift_rad"], gen),
     "remove_frequency": lambda xf, cfg, n_time, fs, gen: remove_frequency(xf, cfg["ratio"], gen),
-    "add_frequency": lambda xf, cfg, n_time, fs, gen: add_frequency(xf, cfg["ratio"], cfg["add_scale"], gen),
+    "add_frequency": lambda xf, cfg, n_time, fs, gen: add_frequency(
+        xf, cfg["ratio"], cfg["add_scale"], gen
+    ),
 }
 
 
 def apply_frequency_domain_augmentation(
-    x_freq: torch.Tensor, config: dict, n_time: int, fs: float, generator: torch.Generator | None = None
+    x_freq: torch.Tensor,
+    config: dict,
+    n_time: int,
+    fs: float,
+    generator: torch.Generator | None = None,
 ) -> torch.Tensor:
     """Each enabled config['frequency_domain'] augmentation, applied
     independently with probability config['apply_probability'], composed
@@ -193,7 +211,9 @@ def apply_frequency_domain_augmentation(
 # ---- kernel-PCA fusion (literal paper method; see module docstring) -------
 
 
-def fuse_time_frequency(time_aug: np.ndarray, freq_aug: np.ndarray, kernel_pca_config: dict) -> np.ndarray:
+def fuse_time_frequency(
+    time_aug: np.ndarray, freq_aug: np.ndarray, kernel_pca_config: dict
+) -> np.ndarray:
     """datafinal = KernelPCA(time_aug_flat) concat KernelPCA(freq_aug_flat),
     exactly as described in the TF-C paper. time_aug: (B, C, T) real,
     freq_aug: (B, C, F) complex (real/imag concatenated when flattened, since
@@ -222,11 +242,16 @@ def fuse_time_frequency(time_aug: np.ndarray, freq_aug: np.ndarray, kernel_pca_c
 class AugmentedViews:
     time_domain: torch.Tensor  # (B, C, T)
     frequency_domain: torch.Tensor  # (B, C, T) -- frequency-augmented, inverse-transformed back
-    fused: np.ndarray | None = None  # (B, 2 * n_components), only if requested -- see fuse_time_frequency
+    fused: np.ndarray | None = (
+        None  # (B, 2 * n_components), only if requested -- see fuse_time_frequency
+    )
 
 
 def make_augmented_views(
-    x: torch.Tensor, config: dict, generator: torch.Generator | None = None, include_fusion: bool = False
+    x: torch.Tensor,
+    config: dict,
+    generator: torch.Generator | None = None,
+    include_fusion: bool = False,
 ) -> AugmentedViews:
     """The two augmented views for contrastive pretraining. x: (B, C, T),
     already preprocessed and normalized."""
@@ -242,7 +267,9 @@ def make_augmented_views(
     fused = None
     if include_fusion:
         fused = fuse_time_frequency(
-            time_view.detach().cpu().numpy(), x_freq_aug.detach().cpu().numpy(), config["kernel_pca"]
+            time_view.detach().cpu().numpy(),
+            x_freq_aug.detach().cpu().numpy(),
+            config["kernel_pca"],
         )
 
     return AugmentedViews(time_domain=time_view, frequency_domain=freq_view, fused=fused)

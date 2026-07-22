@@ -177,13 +177,18 @@ DATASET_SPECS: dict[str, dict] = {
 # the physical site the user asked to focus on. Not every group is present
 # in every dataset; callers should check membership in the loaded frame.
 NAV_TEMPLE_COLS = [
-    "nav_x_left_temple", "nav_y_left_temple",
-    "nav_x_right_temple", "nav_y_right_temple",
+    "nav_x_left_temple",
+    "nav_y_left_temple",
+    "nav_x_right_temple",
+    "nav_y_right_temple",
 ]
 PROX_CHEEK_COLS = ["prox_left_cheek", "prox_right_cheek"]
 PROX_BROW_COLS = [
-    "prox_left_brow", "prox_right_brow", "prox_centre_brow",
-    "prox_centre_top_brow", "prox_centre_bottom_brow",
+    "prox_left_brow",
+    "prox_right_brow",
+    "prox_centre_brow",
+    "prox_centre_top_brow",
+    "prox_centre_bottom_brow",
 ]
 PROX_TEMPLE_COLS = ["prox_left_temple"]
 ACCEL_COLS = ["accel_x", "accel_y", "accel_z"]

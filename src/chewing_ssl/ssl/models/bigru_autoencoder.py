@@ -17,10 +17,13 @@ import torch.nn as nn
 # 03/07/2026
 # Think of a way to improve this architecture
 
+
 class BiGRUAutoencoder(nn.Module):
     """Input/output: (B, n_channels, T)."""
 
-    def __init__(self, n_channels: int = 7, hidden_size: int = 64, num_layers: int = 2, dropout: float = 0.1):
+    def __init__(
+        self, n_channels: int = 7, hidden_size: int = 64, num_layers: int = 2, dropout: float = 0.1
+    ):
         super().__init__()
         self.embedding_dim = hidden_size * 2
         self.mask_token = nn.Parameter(torch.zeros(n_channels))

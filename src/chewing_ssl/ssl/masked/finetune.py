@@ -72,11 +72,12 @@ from chewing_ssl.common.tracking.mlflow_utils import log_metrics, log_params, st
 from chewing_ssl.common.utils.seed import set_seed
 
 N_CHANNELS = len(SENSOR_CHANNELS)
-HIDDEN_SIZE = 64   # matches BiGRUAutoencoder default
-GRU_LAYERS  = 2
+HIDDEN_SIZE = 64  # matches BiGRUAutoencoder default
+GRU_LAYERS = 2
 
 
 # ── Model ─────────────────────────────────────────────────────────────────────
+
 
 class ChewingDetector(nn.Module):
     """BiGRU encoder + per-timestep binary chewing head.
@@ -120,7 +121,7 @@ class ChewingDetector(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """x: (B, C, T)  →  logits: (B, T)"""
-        h, _ = self.gru(x.transpose(1, 2))        # (B, T, 2*hidden)
+        h, _ = self.gru(x.transpose(1, 2))  # (B, T, 2*hidden)
         return self.head(self.dropout(h)).squeeze(-1)  # (B, T)
 
     def hidden_states(self, x: torch.Tensor) -> torch.Tensor:
@@ -131,6 +132,7 @@ class ChewingDetector(nn.Module):
 
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
+
 
 def load_bigru_from_checkpoint(path: Path) -> BiGRUAutoencoder:
     """Load a BiGRUAutoencoder from a pretrain checkpoint.
@@ -146,7 +148,7 @@ def load_bigru_from_checkpoint(path: Path) -> BiGRUAutoencoder:
     if any(k.startswith("encoder.encoder.") for k in state):
         # Legacy pretext-task format: strip the outer 'encoder.' prefix
         # to recover the BiGRUAutoencoder state dict.
-        state = {k[len("encoder."):]: v for k, v in state.items() if k.startswith("encoder.")}
+        state = {k[len("encoder.") :]: v for k, v in state.items() if k.startswith("encoder.")}
     bigru = BiGRUAutoencoder(n_channels=N_CHANNELS)
     bigru.load_state_dict(state)
     return bigru
@@ -185,7 +187,9 @@ def shuffle_by_segment(index: pd.DataFrame, seed: int) -> pd.DataFrame:
     order = {s: i for i, s in enumerate(segs)}
     return (
         index.assign(_o=index["segment_path"].map(order))
-        .sort_values("_o").drop(columns="_o").reset_index(drop=True)
+        .sort_values("_o")
+        .drop(columns="_o")
+        .reset_index(drop=True)
     )
 
 
@@ -196,15 +200,16 @@ def compute_metrics(logits: torch.Tensor, labels: torch.Tensor, threshold: float
     y = labels.cpu().numpy().ravel().astype(int)
     n_unique = len(np.unique(y))
     return {
-        "accuracy":  float(accuracy_score(y, preds)),
+        "accuracy": float(accuracy_score(y, preds)),
         "precision": float(precision_score(y, preds, zero_division=0.0)),
-        "recall":    float(recall_score(y, preds, zero_division=0.0)),
-        "f1":        float(f1_score(y, preds, zero_division=0.0)),
-        "auc":       float(roc_auc_score(y, probs)) if n_unique > 1 else float("nan"),
+        "recall": float(recall_score(y, preds, zero_division=0.0)),
+        "f1": float(f1_score(y, preds, zero_division=0.0)),
+        "auc": float(roc_auc_score(y, probs)) if n_unique > 1 else float("nan"),
     }
 
 
 # ── Training loop ─────────────────────────────────────────────────────────────
+
 
 def run_epoch(
     model: ChewingDetector,
@@ -228,7 +233,7 @@ def run_epoch(
         pbar = tqdm(loader, desc=desc, leave=False, unit="batch")
         for x, y in pbar:
             x, y = x.to(device), y.to(device)
-            logits = model(x)                                           # (B, T)
+            logits = model(x)  # (B, T)
             loss = F.binary_cross_entropy_with_logits(logits, y, pos_weight=pw)
 
             if is_train:
@@ -262,27 +267,43 @@ def print_metrics(metrics: dict, prefix: str = "") -> None:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fine-tune BiGRU encoder for chewing detection.")
     parser.add_argument(
-        "--checkpoint", type=Path,
+        "--checkpoint",
+        type=Path,
         default=Path("checkpoints/pretrain/bigru_personal_best.pt"),
         help="Pretrained BiGRU checkpoint (current or legacy pretext format, auto-detected)",
     )
     parser.add_argument("--variant", choices=["personal", "global"], default="personal")
     parser.add_argument("--dataset", default="SIPMEatingStudy")
-    parser.add_argument("--processed-root", type=Path,
-                        default=Path("src/chewing_ssl/data/data/processed"))
+    parser.add_argument(
+        "--processed-root", type=Path, default=Path("src/chewing_ssl/data/data/processed")
+    )
     parser.add_argument("--out-dir", type=Path, default=Path("checkpoints/finetune"))
-    parser.add_argument("--phase1-epochs", type=int, default=5,
-                        help="Epochs with encoder frozen (head-only training)")
-    parser.add_argument("--phase2-epochs", type=int, default=10,
-                        help="Epochs with encoder unfrozen (full fine-tuning)")
+    parser.add_argument(
+        "--phase1-epochs",
+        type=int,
+        default=5,
+        help="Epochs with encoder frozen (head-only training)",
+    )
+    parser.add_argument(
+        "--phase2-epochs",
+        type=int,
+        default=10,
+        help="Epochs with encoder unfrozen (full fine-tuning)",
+    )
     parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--head-lr", type=float, default=1e-3,
-                        help="Learning rate for the classification head")
-    parser.add_argument("--encoder-lr", type=float, default=1e-4,
-                        help="Learning rate for the encoder in phase 2 (10x lower by default)")
+    parser.add_argument(
+        "--head-lr", type=float, default=1e-3, help="Learning rate for the classification head"
+    )
+    parser.add_argument(
+        "--encoder-lr",
+        type=float,
+        default=1e-4,
+        help="Learning rate for the encoder in phase 2 (10x lower by default)",
+    )
     parser.add_argument("--max-train-windows", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default=None)
@@ -297,7 +318,9 @@ def main() -> None:
     print(f"  Dataset      : {args.dataset}")
     print(f"  Device       : {device}")
     print(f"  Phase 1      : {args.phase1_epochs} epochs  (encoder frozen, head LR={args.head_lr})")
-    print(f"  Phase 2      : {args.phase2_epochs} epochs  (encoder LR={args.encoder_lr}, head LR={args.head_lr})")
+    print(
+        f"  Phase 2      : {args.phase2_epochs} epochs  (encoder LR={args.encoder_lr}, head LR={args.head_lr})"
+    )
     print(f"{'=' * 60}\n")
 
     # ── Load pretrained encoder ──
@@ -312,16 +335,30 @@ def main() -> None:
     print(f"  Total params : {n_params:,}  |  Trainable (phase 1): {n_trainable:,}\n")
 
     # ── Data ──
-    train_index = load_index(args.processed_root, args.variant, "finetune_train",
-                             args.max_train_windows, args.seed, args.dataset)
-    val_index   = load_index(args.processed_root, args.variant, "finetune_val",
-                             None, args.seed, args.dataset)
-    test_index  = load_index(args.processed_root, args.variant, "finetune_test",
-                             None, args.seed, args.dataset)
+    train_index = load_index(
+        args.processed_root,
+        args.variant,
+        "finetune_train",
+        args.max_train_windows,
+        args.seed,
+        args.dataset,
+    )
+    val_index = load_index(
+        args.processed_root, args.variant, "finetune_val", None, args.seed, args.dataset
+    )
+    test_index = load_index(
+        args.processed_root, args.variant, "finetune_test", None, args.seed, args.dataset
+    )
 
-    print(f"  Train : {len(train_index):>5,} windows | {train_index['participant'].nunique()} participants")
-    print(f"  Val   : {len(val_index):>5,} windows | {val_index['participant'].nunique()} participants")
-    print(f"  Test  : {len(test_index):>5,} windows | {test_index['participant'].nunique()} participants")
+    print(
+        f"  Train : {len(train_index):>5,} windows | {train_index['participant'].nunique()} participants"
+    )
+    print(
+        f"  Val   : {len(val_index):>5,} windows | {val_index['participant'].nunique()} participants"
+    )
+    print(
+        f"  Test  : {len(test_index):>5,} windows | {test_index['participant'].nunique()} participants"
+    )
 
     # Estimate chewing fraction from training index (no parquet load needed).
     # Used to compute pos_weight for class-balanced BCE.
@@ -337,12 +374,20 @@ def main() -> None:
     print(f"  pos_weight for BCE             : {pos_weight.item():.2f}\n")
 
     val_loader = DataLoader(
-        WindowDataset(val_index.sort_values("segment_path").reset_index(drop=True), with_label=True),
-        batch_size=args.batch_size, shuffle=False, num_workers=0,
+        WindowDataset(
+            val_index.sort_values("segment_path").reset_index(drop=True), with_label=True
+        ),
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=0,
     )
     test_loader = DataLoader(
-        WindowDataset(test_index.sort_values("segment_path").reset_index(drop=True), with_label=True),
-        batch_size=args.batch_size, shuffle=False, num_workers=0,
+        WindowDataset(
+            test_index.sort_values("segment_path").reset_index(drop=True), with_label=True
+        ),
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=0,
     )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -353,20 +398,22 @@ def main() -> None:
     best_ckpt = args.out_dir / f"{ckpt_name}_best.pt"
 
     with start_run(run_name=f"finetune_{ckpt_name}"):
-        log_params({
-            "pretrained_from": str(args.checkpoint),
-            "dataset": args.dataset,
-            "variant": args.variant,
-            "phase1_epochs": args.phase1_epochs,
-            "phase2_epochs": args.phase2_epochs,
-            "head_lr": args.head_lr,
-            "encoder_lr": args.encoder_lr,
-            "batch_size": args.batch_size,
-            "n_train_windows": len(train_index),
-            "n_val_windows": len(val_index),
-            "pos_weight": pos_weight.item(),
-            "seed": args.seed,
-        })
+        log_params(
+            {
+                "pretrained_from": str(args.checkpoint),
+                "dataset": args.dataset,
+                "variant": args.variant,
+                "phase1_epochs": args.phase1_epochs,
+                "phase2_epochs": args.phase2_epochs,
+                "head_lr": args.head_lr,
+                "encoder_lr": args.encoder_lr,
+                "batch_size": args.batch_size,
+                "n_train_windows": len(train_index),
+                "n_val_windows": len(val_index),
+                "pos_weight": pos_weight.item(),
+                "seed": args.seed,
+            }
+        )
 
         # ── Phase 1: encoder frozen ──────────────────────────────────────────
         if args.phase1_epochs > 0:
@@ -383,27 +430,40 @@ def main() -> None:
                 shuffled = shuffle_by_segment(train_index, args.seed + epoch)
                 train_loader = DataLoader(
                     WindowDataset(shuffled, with_label=True),
-                    batch_size=args.batch_size, shuffle=False, num_workers=0,
+                    batch_size=args.batch_size,
+                    shuffle=False,
+                    num_workers=0,
                 )
                 train_m = run_epoch(model, train_loader, device, optimizer, pos_weight, lbl)
-                val_m   = run_epoch(model, val_loader,   device, None,      pos_weight, lbl)
+                val_m = run_epoch(model, val_loader, device, None, pos_weight, lbl)
                 dt = time.time() - t0
 
                 log_metrics({f"p1_train_{k}": v for k, v in train_m.items()}, step=epoch)
                 log_metrics({f"p1_val_{k}": v for k, v in val_m.items()}, step=epoch)
                 print_metrics(train_m, prefix="  train  ")
-                print_metrics(val_m,   prefix="  val    ")
+                print_metrics(val_m, prefix="  val    ")
                 print(f"  ({dt:.1f}s)")
 
-                row = {"phase": 1, "epoch": epoch, **{f"train_{k}": v for k, v in train_m.items()},
-                       **{f"val_{k}": v for k, v in val_m.items()}}
+                row = {
+                    "phase": 1,
+                    "epoch": epoch,
+                    **{f"train_{k}": v for k, v in train_m.items()},
+                    **{f"val_{k}": v for k, v in val_m.items()},
+                }
                 history.append(row)
 
                 if val_m["f1"] > best_val_f1:
                     best_val_f1 = val_m["f1"]
-                    torch.save({"model_state_dict": model.state_dict(), "phase": 1,
-                                "epoch": epoch, "val_f1": best_val_f1,
-                                "val_metrics": val_m}, best_ckpt)
+                    torch.save(
+                        {
+                            "model_state_dict": model.state_dict(),
+                            "phase": 1,
+                            "epoch": epoch,
+                            "val_f1": best_val_f1,
+                            "val_metrics": val_m,
+                        },
+                        best_ckpt,
+                    )
                     print(f"  ✓ New best val_f1={best_val_f1:.3f}")
                 print()
 
@@ -415,12 +475,16 @@ def main() -> None:
             print(f"  Phase 2: {args.phase2_epochs} epochs  (encoder UNFROZEN)")
             print(f"  Trainable params now: {n_trainable2:,}")
             print(f"{'─' * 60}")
-            optimizer = torch.optim.AdamW([
-                {"params": model.gru.parameters(),  "lr": args.encoder_lr,
-                 "name": "encoder"},
-                {"params": list(model.dropout.parameters()) + list(model.head.parameters()),
-                 "lr": args.head_lr, "name": "head"},
-            ])
+            optimizer = torch.optim.AdamW(
+                [
+                    {"params": model.gru.parameters(), "lr": args.encoder_lr, "name": "encoder"},
+                    {
+                        "params": list(model.dropout.parameters()) + list(model.head.parameters()),
+                        "lr": args.head_lr,
+                        "name": "head",
+                    },
+                ]
+            )
             for epoch in range(args.phase2_epochs):
                 t0 = time.time()
                 lbl = f"P2 epoch {epoch + 1}/{args.phase2_epochs}"
@@ -428,27 +492,40 @@ def main() -> None:
                 shuffled = shuffle_by_segment(train_index, args.seed + 1000 + epoch)
                 train_loader = DataLoader(
                     WindowDataset(shuffled, with_label=True),
-                    batch_size=args.batch_size, shuffle=False, num_workers=0,
+                    batch_size=args.batch_size,
+                    shuffle=False,
+                    num_workers=0,
                 )
                 train_m = run_epoch(model, train_loader, device, optimizer, pos_weight, lbl)
-                val_m   = run_epoch(model, val_loader,   device, None,      pos_weight, lbl)
+                val_m = run_epoch(model, val_loader, device, None, pos_weight, lbl)
                 dt = time.time() - t0
 
                 log_metrics({f"p2_train_{k}": v for k, v in train_m.items()}, step=epoch)
                 log_metrics({f"p2_val_{k}": v for k, v in val_m.items()}, step=epoch)
                 print_metrics(train_m, prefix="  train  ")
-                print_metrics(val_m,   prefix="  val    ")
+                print_metrics(val_m, prefix="  val    ")
                 print(f"  ({dt:.1f}s)")
 
-                row = {"phase": 2, "epoch": epoch, **{f"train_{k}": v for k, v in train_m.items()},
-                       **{f"val_{k}": v for k, v in val_m.items()}}
+                row = {
+                    "phase": 2,
+                    "epoch": epoch,
+                    **{f"train_{k}": v for k, v in train_m.items()},
+                    **{f"val_{k}": v for k, v in val_m.items()},
+                }
                 history.append(row)
 
                 if val_m["f1"] > best_val_f1:
                     best_val_f1 = val_m["f1"]
-                    torch.save({"model_state_dict": model.state_dict(), "phase": 2,
-                                "epoch": epoch, "val_f1": best_val_f1,
-                                "val_metrics": val_m}, best_ckpt)
+                    torch.save(
+                        {
+                            "model_state_dict": model.state_dict(),
+                            "phase": 2,
+                            "epoch": epoch,
+                            "val_f1": best_val_f1,
+                            "val_metrics": val_m,
+                        },
+                        best_ckpt,
+                    )
                     print(f"  ✓ New best val_f1={best_val_f1:.3f}")
                 print()
 
@@ -457,8 +534,10 @@ def main() -> None:
         print("  Loading best checkpoint for test evaluation ...")
         best_state = torch.load(best_ckpt, map_location="cpu", weights_only=True)
         model.load_state_dict(best_state["model_state_dict"])
-        print(f"  Best model: phase={best_state['phase']}  epoch={best_state['epoch'] + 1}  "
-              f"val_f1={best_state['val_f1']:.3f}\n")
+        print(
+            f"  Best model: phase={best_state['phase']}  epoch={best_state['epoch'] + 1}  "
+            f"val_f1={best_state['val_f1']:.3f}\n"
+        )
 
         test_m = run_epoch(model, test_loader, device, None, pos_weight, "test")
         print("  TEST SET RESULTS:")

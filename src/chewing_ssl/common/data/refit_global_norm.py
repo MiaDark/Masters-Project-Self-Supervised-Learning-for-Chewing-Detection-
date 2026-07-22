@@ -27,12 +27,16 @@ from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS, apply_global_sta
 from chewing_ssl.common.data.windowing import DATASETS, extract_participant, list_tags, purposes_for
 
 
-def iter_segments(interim_root: Path, splits: dict, only_pretrain_eligible: bool, datasets: list[str] = DATASETS):
+def iter_segments(
+    interim_root: Path, splits: dict, only_pretrain_eligible: bool, datasets: list[str] = DATASETS
+):
     """Yield (dataset, tag, segment_parquet_path, meta_dict) for every raw-scale segment."""
     for dataset in datasets:
         for tag in list_tags(interim_root, dataset):
             participant = extract_participant(dataset, tag)
-            if only_pretrain_eligible and "pretrain" not in purposes_for(dataset, participant, splits):
+            if only_pretrain_eligible and "pretrain" not in purposes_for(
+                dataset, participant, splits
+            ):
                 continue
             seg_dir = interim_root / dataset / tag
             for meta_path in sorted(seg_dir.glob("segment_*.json")):
@@ -40,7 +44,9 @@ def iter_segments(interim_root: Path, splits: dict, only_pretrain_eligible: bool
                 yield dataset, tag, meta_path.with_suffix(".parquet"), meta
 
 
-def fit_train_only_global_stats(interim_root: Path, splits: dict, channels: list[str] = SENSOR_CHANNELS) -> dict:
+def fit_train_only_global_stats(
+    interim_root: Path, splits: dict, channels: list[str] = SENSOR_CHANNELS
+) -> dict:
     """Streaming (bounded-memory) accumulation -- never holds more than one segment in memory."""
     acc = {c: {"n": 0, "sum": 0.0, "sumsq": 0.0} for c in channels}
     n_segments = 0
@@ -62,9 +68,13 @@ def fit_train_only_global_stats(interim_root: Path, splits: dict, channels: list
     return stats
 
 
-def apply_and_write_normalized(interim_root: Path, out_root: Path, splits: dict, global_stats: dict) -> None:
+def apply_and_write_normalized(
+    interim_root: Path, out_root: Path, splits: dict, global_stats: dict
+) -> None:
     n_written = 0
-    for dataset, tag, path, meta in iter_segments(interim_root, splits, only_pretrain_eligible=False):
+    for dataset, tag, path, meta in iter_segments(
+        interim_root, splits, only_pretrain_eligible=False
+    ):
         df = pd.read_parquet(path)
         normalized = apply_global_stats(df, global_stats)
         g_meta = {
@@ -77,14 +87,20 @@ def apply_and_write_normalized(interim_root: Path, out_root: Path, splits: dict,
         out_dir = out_root / dataset / tag
         out_dir.mkdir(parents=True, exist_ok=True)
         normalized.to_parquet(out_dir / path.name, index=False)
-        (out_dir / path.with_suffix(".json").name).write_text(json.dumps(g_meta, indent=2, default=str))
+        (out_dir / path.with_suffix(".json").name).write_text(
+            json.dumps(g_meta, indent=2, default=str)
+        )
         n_written += 1
     print(f"Wrote normalized segment(s) for {n_written} segment(s) to {out_root}.")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fit + apply the global (train-only) normalization variant.")
-    parser.add_argument("--interim-root", type=Path, default=Path("data/interim"), help="Raw-scale segments.")
+    parser = argparse.ArgumentParser(
+        description="Fit + apply the global (train-only) normalization variant."
+    )
+    parser.add_argument(
+        "--interim-root", type=Path, default=Path("data/interim"), help="Raw-scale segments."
+    )
     parser.add_argument("--out", type=Path, default=Path("data/interim_normalized"))
     parser.add_argument("--processed-root", type=Path, default=Path("data/processed"))
     args = parser.parse_args()

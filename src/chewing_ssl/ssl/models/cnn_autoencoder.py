@@ -38,7 +38,9 @@ class ConvBlock(nn.Module):
 class CNNAutoencoder(nn.Module):
     """Input/output: (B, n_channels, T). T must be divisible by 2**depth (200 / 2**3 = 25, fine)."""
 
-    def __init__(self, n_channels: int = 7, base_width: int = 32, depth: int = 3, kernel_size: int = 7):
+    def __init__(
+        self, n_channels: int = 7, base_width: int = 32, depth: int = 3, kernel_size: int = 7
+    ):
         super().__init__()
         self.mask_token = nn.Parameter(torch.zeros(n_channels))
 

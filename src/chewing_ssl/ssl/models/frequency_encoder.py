@@ -30,7 +30,9 @@ class FrequencyEncoder(nn.Module):
     divides evenly, so this is robust regardless of window length / F.
     """
 
-    def __init__(self, n_channels: int = 5, base_width: int = 32, depth: int = 3, kernel_size: int = 7):
+    def __init__(
+        self, n_channels: int = 5, base_width: int = 32, depth: int = 3, kernel_size: int = 7
+    ):
         super().__init__()
         widths = [base_width * (2**i) for i in range(depth)]
         self.embedding_dim = widths[-1]

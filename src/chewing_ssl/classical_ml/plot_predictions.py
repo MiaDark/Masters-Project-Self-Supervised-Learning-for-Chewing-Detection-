@@ -15,6 +15,7 @@ import argparse
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
@@ -24,8 +25,11 @@ from chewing_ssl.common.evaluation.bouts import extract_bouts, match_bouts
 
 FS = 50.0
 PALETTE = {
-    "nav_x": "#1565C0", "nav_y": "#6A1B9A",
-    "detected": "#2E7D32", "missed": "#C62828", "false_alarm": "#EF6C00",
+    "nav_x": "#1565C0",
+    "nav_y": "#6A1B9A",
+    "detected": "#2E7D32",
+    "missed": "#C62828",
+    "false_alarm": "#EF6C00",
 }
 
 
@@ -37,12 +41,18 @@ def _shade_bout(ax: plt.Axes, bout: dict, t: pd.Series, color: str, alpha: float
 def load_manifest(upscaled_dir: Path) -> pd.DataFrame:
     manifest_path = upscaled_dir / "manifest.csv"
     if not manifest_path.exists():
-        raise FileNotFoundError(f"No manifest at {manifest_path} -- run upscale_predictions.py first")
+        raise FileNotFoundError(
+            f"No manifest at {manifest_path} -- run upscale_predictions.py first"
+        )
     return pd.read_csv(manifest_path)
 
 
 def find_recording(
-    upscaled_dir: Path, dataset: str | None, participant: str | None, tag: str | None, segment: str | None
+    upscaled_dir: Path,
+    dataset: str | None,
+    participant: str | None,
+    tag: str | None,
+    segment: str | None,
 ) -> pd.Series:
     """Resolve which recording to plot, via upscale_predictions.py's
     manifest.csv (the source of truth for identity -- filenames are opaque
@@ -54,8 +64,10 @@ def find_recording(
 
     if dataset and participant and tag and segment:
         match = manifest[
-            (manifest["dataset"] == dataset) & (manifest["participant"] == participant)
-            & (manifest["tag"] == tag) & (manifest["segment"] == segment)
+            (manifest["dataset"] == dataset)
+            & (manifest["participant"] == participant)
+            & (manifest["tag"] == tag)
+            & (manifest["segment"] == segment)
         ]
         if match.empty:
             raise ValueError(
@@ -68,15 +80,25 @@ def find_recording(
 
 
 def plot_predictions(
-    interim_root: Path, row: pd.Series, out_path: Path,
-    iou_thresh: float = 0.3, min_bout_dur: float = 0.5,
+    interim_root: Path,
+    row: pd.Series,
+    out_path: Path,
+    iou_thresh: float = 0.3,
+    min_bout_dur: float = 0.5,
 ) -> None:
-    dataset, participant, tag, segment = row["dataset"], row["participant"], row["tag"], row["segment"]
+    dataset, participant, tag, segment = (
+        row["dataset"],
+        row["participant"],
+        row["tag"],
+        row["segment"],
+    )
     seg_path = interim_root / dataset / tag / f"{segment}.parquet"
     if not seg_path.exists():
         raise FileNotFoundError(f"No interim segment at {seg_path}")
 
-    signal = pd.read_parquet(seg_path, columns=["datetime", "nav_x_left_temple", "nav_y_left_temple", "label"])
+    signal = pd.read_parquet(
+        seg_path, columns=["datetime", "nav_x_left_temple", "nav_y_left_temple", "label"]
+    )
     signal["row_idx"] = range(len(signal))
 
     preds = pd.read_parquet(row["out_path"])
@@ -93,7 +115,7 @@ def plot_predictions(
     result = match_bouts(gt_bouts, pred_bouts, iou_thresh=iou_thresh)
     matched_gt_ids = {id(m["gt"]) for m in result["matches"]}
     matched_pred_ids = {id(m["pred"]) for m in result["matches"]}
-    n_detected, n_missed = len(matched_gt_ids), len(gt_bouts) - len(matched_gt_ids)
+    n_detected = len(matched_gt_ids)
     n_false_alarm = len(pred_bouts) - len(matched_pred_ids)
 
     fig, axes = plt.subplots(2, 1, figsize=(16, 7), sharex=True)
@@ -107,11 +129,29 @@ def plot_predictions(
 
     panels = [
         (axes[0], gt_bouts, matched_gt_ids, {True: "detected", False: "missed"}, "Ground truth"),
-        (axes[1], pred_bouts, matched_pred_ids, {True: "detected", False: "false_alarm"}, "Model prediction"),
+        (
+            axes[1],
+            pred_bouts,
+            matched_pred_ids,
+            {True: "detected", False: "false_alarm"},
+            "Model prediction",
+        ),
     ]
     for ax, bouts, matched_ids, status_of, title in panels:
-        ax.plot(merged["datetime"], merged["nav_x_left_temple"], color=PALETTE["nav_x"], linewidth=0.8, label="nav_x_left_temple")
-        ax.plot(merged["datetime"], merged["nav_y_left_temple"], color=PALETTE["nav_y"], linewidth=0.8, label="nav_y_left_temple")
+        ax.plot(
+            merged["datetime"],
+            merged["nav_x_left_temple"],
+            color=PALETTE["nav_x"],
+            linewidth=0.8,
+            label="nav_x_left_temple",
+        )
+        ax.plot(
+            merged["datetime"],
+            merged["nav_y_left_temple"],
+            color=PALETTE["nav_y"],
+            linewidth=0.8,
+            label="nav_y_left_temple",
+        )
         for bout in bouts:
             status = status_of[id(bout) in matched_ids]
             _shade_bout(ax, bout, merged["datetime"], PALETTE[status])
@@ -131,38 +171,64 @@ def plot_predictions(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved  ->  {out_path}  ({n_detected}/{len(gt_bouts)} detected, {n_false_alarm} false alarms)")
+    print(
+        f"  Saved  ->  {out_path}  ({n_detected}/{len(gt_bouts)} detected, {n_false_alarm} false alarms)"
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--interim-root", type=Path, default=Path("data/interim_normalized"))
-    parser.add_argument("--upscaled-dir", type=Path, default=Path("data/processed/ml_predictions_upscaled"))
+    parser.add_argument(
+        "--upscaled-dir", type=Path, default=Path("data/processed/ml_predictions_upscaled")
+    )
     parser.add_argument("--dataset", default=None)
     parser.add_argument("--participant", default=None)
     parser.add_argument("--tag", default=None)
-    parser.add_argument("--segment", default=None, help="e.g. 'segment_00'. Must be given together with the other three.")
-    parser.add_argument("--out", type=Path, default=Path("checkpoints/plots/ml_predictions/predictions.png"))
     parser.add_argument(
-        "--all", action="store_true",
+        "--segment",
+        default=None,
+        help="e.g. 'segment_00'. Must be given together with the other three.",
+    )
+    parser.add_argument(
+        "--out", type=Path, default=Path("checkpoints/plots/ml_predictions/predictions.png")
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
         help="Plot every recording in manifest.csv (i.e. every test-set recording, since that's "
-             "upscale_predictions.py's default --features-path), one PNG each under --out-dir "
-             "instead of a single --out file.",
+        "upscale_predictions.py's default --features-path), one PNG each under --out-dir "
+        "instead of a single --out file.",
     )
     parser.add_argument(
-        "--out-dir", type=Path, default=Path("checkpoints/plots/ml_predictions/all"),
+        "--out-dir",
+        type=Path,
+        default=Path("checkpoints/plots/ml_predictions/all"),
         help="Used only with --all: one PNG per recording is written here, named "
-             "<dataset>_<participant>_<tag>_<segment>.png.",
+        "<dataset>_<participant>_<tag>_<segment>.png.",
     )
-    parser.add_argument("--iou-thresh", type=float, default=0.3, help="Bout-match threshold, same default as evaluate_ml_bouts.py.")
-    parser.add_argument("--min-bout-dur", type=float, default=0.5, help="Minimum bout duration (s), same default as evaluate_ml_bouts.py.")
+    parser.add_argument(
+        "--iou-thresh",
+        type=float,
+        default=0.3,
+        help="Bout-match threshold, same default as evaluate_ml_bouts.py.",
+    )
+    parser.add_argument(
+        "--min-bout-dur",
+        type=float,
+        default=0.5,
+        help="Minimum bout duration (s), same default as evaluate_ml_bouts.py.",
+    )
     args = parser.parse_args()
 
     if args.all:
         manifest = load_manifest(args.upscaled_dir)
         print(f"\nPlotting {len(manifest)} recording(s) -> {args.out_dir}/")
         for _, row in manifest.iterrows():
-            out_path = args.out_dir / f"{row['dataset']}_{row['participant']}_{row['tag']}_{row['segment']}.png"
+            out_path = (
+                args.out_dir
+                / f"{row['dataset']}_{row['participant']}_{row['tag']}_{row['segment']}.png"
+            )
             plot_predictions(args.interim_root, row, out_path, args.iou_thresh, args.min_bout_dur)
         print(f"\nDone. {len(manifest)} plot(s) written to {args.out_dir}/")
         return

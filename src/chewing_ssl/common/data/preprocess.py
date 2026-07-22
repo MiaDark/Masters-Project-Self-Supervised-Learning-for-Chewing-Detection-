@@ -78,12 +78,16 @@ def add_derivative_channels(
     return out
 
 
-def segment_at_gaps(df: pd.DataFrame, gap_threshold_s: float = DEFAULT_GAP_THRESHOLD_S) -> list[pd.DataFrame]:
+def segment_at_gaps(
+    df: pd.DataFrame, gap_threshold_s: float = DEFAULT_GAP_THRESHOLD_S
+) -> list[pd.DataFrame]:
     """Split into contiguous chunks wherever the timestamp gap exceeds the threshold."""
     dt = np.diff(df["datetime"].to_numpy()) / np.timedelta64(1, "s")
     breaks = np.where(dt > gap_threshold_s)[0] + 1
     bounds = [0, *breaks.tolist(), len(df)]
-    return [df.iloc[bounds[i] : bounds[i + 1]].reset_index(drop=True) for i in range(len(bounds) - 1)]
+    return [
+        df.iloc[bounds[i] : bounds[i + 1]].reset_index(drop=True) for i in range(len(bounds) - 1)
+    ]
 
 
 def resample_segment(df: pd.DataFrame, target_hz: float = DEFAULT_TARGET_HZ) -> pd.DataFrame:
@@ -151,7 +155,9 @@ def resample_recording(
 
     results = []
     for raw_segment in segment_at_gaps(df, gap_threshold_s):
-        duration_s = (raw_segment["datetime"].iloc[-1] - raw_segment["datetime"].iloc[0]).total_seconds()
+        duration_s = (
+            raw_segment["datetime"].iloc[-1] - raw_segment["datetime"].iloc[0]
+        ).total_seconds()
         if duration_s < min_segment_s:
             continue
         resampled = resample_segment(raw_segment, target_hz)
@@ -170,7 +176,11 @@ def resample_recording(
                 "order": filter_order,
                 "zero_phase": True,
             },
-            "derivative": {"method": "np.gradient", "suffix": DERIVATIVE_SUFFIX, "channels": RAW_CHANNELS},
+            "derivative": {
+                "method": "np.gradient",
+                "suffix": DERIVATIVE_SUFFIX,
+                "channels": RAW_CHANNELS,
+            },
         }
         results.append((with_derivative, meta))
     return results
@@ -215,14 +225,22 @@ def main() -> None:
         description="Raw -> interim preprocessing (raw-scale, unnormalized). "
         "Defaults come from configs/preprocessing.yaml; CLI flags override it for one-off runs."
     )
-    parser.add_argument("--config", type=Path, default=None, help="Use a different preprocessing config file.")
-    parser.add_argument("--dataset", choices=cfg["datasets"], help="Only this dataset; default: all 5 in the config.")
+    parser.add_argument(
+        "--config", type=Path, default=None, help="Use a different preprocessing config file."
+    )
+    parser.add_argument(
+        "--dataset",
+        choices=cfg["datasets"],
+        help="Only this dataset; default: all 5 in the config.",
+    )
     parser.add_argument("--root", type=Path, default=None)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--target-hz", type=float, default=None)
     parser.add_argument("--gap-threshold-s", type=float, default=None)
     parser.add_argument("--min-segment-s", type=float, default=None)
-    parser.add_argument("--cutoff-hz", type=float, default=None, help="Butterworth low-pass cutoff.")
+    parser.add_argument(
+        "--cutoff-hz", type=float, default=None, help="Butterworth low-pass cutoff."
+    )
     parser.add_argument("--filter-order", type=int, default=None)
     args = parser.parse_args()
 

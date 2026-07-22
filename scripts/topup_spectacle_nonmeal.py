@@ -12,11 +12,15 @@ from scripts.extract_spectacle_nonmeal import OUT_ROOT, scan_spectacle
 
 ACCEL_DIVISOR = 417.53312946
 NAV_DIVISOR = 240
-FLAT_STD_THRESHOLD = 0.05  # in already-scaled (pre-revert) units, same convention the bad snippets were caught in
+FLAT_STD_THRESHOLD = (
+    0.05  # in already-scaled (pre-revert) units, same convention the bad snippets were caught in
+)
 EXCLUDED_LEDGER = OUT_ROOT / "excluded_windows.csv"
 
 
-def load_consumed_windows(manifest_path: Path) -> dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]]:
+def load_consumed_windows(
+    manifest_path: Path,
+) -> dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]]:
     """Union of everything currently in the manifest AND everything ever
     deleted (EXCLUDED_LEDGER), so a deleted-then-retried window is never
     re-selected just because its manifest row is gone."""
@@ -49,8 +53,10 @@ def delete_snippets(manifest_path: Path, out_paths: list[str]) -> None:
     mask = mani["out_path"].isin(out_paths)
     removed = mani[mask]
 
-    ledger = pd.read_csv(EXCLUDED_LEDGER) if EXCLUDED_LEDGER.exists() else pd.DataFrame(
-        columns=["source_path", "start", "end"]
+    ledger = (
+        pd.read_csv(EXCLUDED_LEDGER)
+        if EXCLUDED_LEDGER.exists()
+        else pd.DataFrame(columns=["source_path", "start", "end"])
     )
     ledger = pd.concat([ledger, removed[["source_path", "start", "end"]]], ignore_index=True)
     ledger.to_csv(EXCLUDED_LEDGER, index=False)
@@ -59,7 +65,9 @@ def delete_snippets(manifest_path: Path, out_paths: list[str]) -> None:
         Path(p).unlink(missing_ok=True)
 
     mani.loc[~mask].to_csv(manifest_path, index=False)
-    print(f"Deleted {mask.sum()} snippet(s), logged to {EXCLUDED_LEDGER}, manifest now has {(~mask).sum()} row(s)")
+    print(
+        f"Deleted {mask.sum()} snippet(s), logged to {EXCLUDED_LEDGER}, manifest now has {(~mask).sum()} row(s)"
+    )
 
 
 def subtract_consumed(
@@ -97,7 +105,9 @@ def candidate_is_valid(df: pd.DataFrame) -> bool:
     if len(df) == 0:
         return False
     accel_cols = [c for c in df.columns if prefix_of(c) == "Accelerometer"]
-    nav_cols = [c for c in df.columns if prefix_of(c) == "Navigation" and not is_nav_debug_column(c)]
+    nav_cols = [
+        c for c in df.columns if prefix_of(c) == "Navigation" and not is_nav_debug_column(c)
+    ]
     check_cols = accel_cols + nav_cols
     if not check_cols:
         return False
@@ -110,9 +120,13 @@ def candidate_is_valid(df: pd.DataFrame) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target-minutes", type=float, help="Minutes of replacement snippets to select.")
     parser.add_argument(
-        "--delete", nargs="+", metavar="OUT_PATH",
+        "--target-minutes", type=float, help="Minutes of replacement snippets to select."
+    )
+    parser.add_argument(
+        "--delete",
+        nargs="+",
+        metavar="OUT_PATH",
         help="Delete these snippet file(s) (by out_path) instead of topping up; logs to the exclusion ledger.",
     )
     parser.add_argument("--pad-minutes", type=float, default=5.0)
@@ -127,13 +141,17 @@ def main() -> None:
         parser.error("--target-minutes is required unless --delete is given.")
 
     consumed = load_consumed_windows(manifest_path)
-    print(f"{sum(len(v) for v in consumed.values())} already-consumed window(s) across {len(consumed)} file(s)")
+    print(
+        f"{sum(len(v) for v in consumed.values())} already-consumed window(s) across {len(consumed)} file(s)"
+    )
 
     by_participant = scan_spectacle(args.pad_minutes)
     # Subtract already-used time from every day's available intervals.
     for days in by_participant.values():
         for day in days:
-            day["intervals"] = subtract_consumed(day["intervals"], consumed.get(str(day["path"]), []))
+            day["intervals"] = subtract_consumed(
+                day["intervals"], consumed.get(str(day["path"]), [])
+            )
             day["available"] = sum((e - s).total_seconds() for s, e in day["intervals"])
     for p in list(by_participant):
         by_participant[p] = [d for d in by_participant[p] if d["available"] > 0]
@@ -180,7 +198,11 @@ def main() -> None:
                         continue
 
                     accel_cols = [c for c in snippet.columns if prefix_of(c) == "Accelerometer"]
-                    nav_cols = [c for c in snippet.columns if prefix_of(c) == "Navigation" and not is_nav_debug_column(c)]
+                    nav_cols = [
+                        c
+                        for c in snippet.columns
+                        if prefix_of(c) == "Navigation" and not is_nav_debug_column(c)
+                    ]
                     snippet = snippet.copy()
                     if accel_cols:
                         snippet[accel_cols] = snippet[accel_cols] * ACCEL_DIVISOR
@@ -191,14 +213,21 @@ def main() -> None:
                     out_dir.mkdir(parents=True, exist_ok=True)
                     out_path = out_dir / f"{day['tag']}_snippet{next_idx:03d}.csv"
                     snippet.to_csv(out_path, index=False)
-                    print(f"  [+{next_idx}] {day['tag']} {s}..{snippet_end} ({take/60:.1f} min) -> {out_path}")
+                    print(
+                        f"  [+{next_idx}] {day['tag']} {s}..{snippet_end} ({take / 60:.1f} min) -> {out_path}"
+                    )
                     next_idx += 1
 
                     manifest_rows.append(
                         {
-                            "participant": p, "source_tag": day["tag"], "source_path": str(day["path"]),
-                            "start": s, "end": snippet_end, "duration_s": take,
-                            "n_rows": len(snippet), "out_path": str(out_path),
+                            "participant": p,
+                            "source_tag": day["tag"],
+                            "source_path": str(day["path"]),
+                            "start": s,
+                            "end": snippet_end,
+                            "duration_s": take,
+                            "n_rows": len(snippet),
+                            "out_path": str(out_path),
                         }
                     )
                     remaining -= take
@@ -220,7 +249,7 @@ def main() -> None:
 
     total_added = added["duration_s"].sum() if len(added) else 0.0
     print(
-        f"\nAdded {len(added)} snippet(s), {total_added/60:.1f} min "
+        f"\nAdded {len(added)} snippet(s), {total_added / 60:.1f} min "
         f"(target {args.target_minutes:.1f} min). Manifest now has {len(combined)} row(s)."
     )
 

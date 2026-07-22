@@ -31,6 +31,7 @@ import argparse
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -45,11 +46,11 @@ from chewing_ssl.ssl.models.masking import apply_mask_token, sample_mask_batch
 CHANNEL_LABELS = {
     "nav_x_left_temple": "Nav X\nLeft Temple",
     "nav_y_left_temple": "Nav Y\nLeft Temple",
-    "prox_left_cheek":   "Prox\nLeft Cheek",
-    "prox_right_cheek":  "Prox\nRight Cheek",
-    "accel_x":           "Accel X",
-    "accel_y":           "Accel Y",
-    "accel_z":           "Accel Z",
+    "prox_left_cheek": "Prox\nLeft Cheek",
+    "prox_right_cheek": "Prox\nRight Cheek",
+    "accel_x": "Accel X",
+    "accel_y": "Accel Y",
+    "accel_z": "Accel Z",
 }
 
 # Three channels most visually distinctive during chewing
@@ -65,6 +66,7 @@ ARCH_LABELS = {"cnn": "CNN U-Net", "bigru": "Bi-GRU"}
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────
+
 
 def find_chewing_window(
     interim_root: Path,
@@ -93,20 +95,25 @@ def find_chewing_window(
 
     if "label" in df.columns:
         for start in range(0, len(df) - window_len, 10):
-            win = df.iloc[start:start + window_len]
+            win = df.iloc[start : start + window_len]
             if win["label"].mean() >= min_chew_frac:
                 x = win[SENSOR_CHANNELS].to_numpy(dtype=np.float32).T  # (C, T)
-                print(f"  Chewing window found at row {start}  "
-                      f"(chewing fraction = {win['label'].mean():.0%})")
+                print(
+                    f"  Chewing window found at row {start}  "
+                    f"(chewing fraction = {win['label'].mean():.0%})"
+                )
                 return x, participant, start
 
     # No label column or no high-chew window: use first available window
     x = df[SENSOR_CHANNELS].iloc[:window_len].to_numpy(dtype=np.float32).T
-    print(f"  No high-chew window found in {seg_path.name} — using first window (no-label fallback)")
+    print(
+        f"  No high-chew window found in {seg_path.name} — using first window (no-label fallback)"
+    )
     return x, participant, 0
 
 
 # ── Masking ───────────────────────────────────────────────────────────────────
+
 
 def make_mask(x: np.ndarray, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
     """Return (x_masked, bool_mask) where True = masked position."""
@@ -116,13 +123,14 @@ def make_mask(x: np.ndarray, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
     mask_t = sample_mask_batch(
         1, C, T, span_mask_ratio=0.4, channel_mask_prob=0.15, generator=g
     )  # (1, C, T) BoolTensor
-    x_t = torch.from_numpy(x).unsqueeze(0)   # (1, C, T)
+    x_t = torch.from_numpy(x).unsqueeze(0)  # (1, C, T)
     token = torch.zeros(C)
     x_masked_t = apply_mask_token(x_t, mask_t, token)
     return x_masked_t.squeeze(0).numpy(), mask_t.squeeze(0).numpy().astype(bool)
 
 
 # ── Transforms (illustrative only -- not used by any pretraining script) ─────
+
 
 def transform_arrow_of_time(x: np.ndarray) -> np.ndarray:
     return np.flip(x, axis=1).copy()
@@ -133,10 +141,12 @@ def transform_permutation(x: np.ndarray, n_chunks: int = 4, seed: int = 7) -> np
     C, T = x.shape
     chunk = T // n_chunks
     order = rng.permutation(n_chunks)
-    return np.concatenate([x[:, i * chunk:(i + 1) * chunk] for i in order], axis=1)
+    return np.concatenate([x[:, i * chunk : (i + 1) * chunk] for i in order], axis=1)
 
 
-def transform_time_warp(x: np.ndarray, seed: int = 3, n_ctrl: int = 6, max_warp: float = 0.2) -> np.ndarray:
+def transform_time_warp(
+    x: np.ndarray, seed: int = 3, n_ctrl: int = 6, max_warp: float = 0.2
+) -> np.ndarray:
     rng = np.random.default_rng(seed)
     C, T = x.shape
     ctrl = np.linspace(0, T - 1, n_ctrl)
@@ -153,7 +163,10 @@ def transform_time_warp(x: np.ndarray, seed: int = 3, n_ctrl: int = 6, max_warp:
 
 # ── Helper: shade masked spans on an axis ────────────────────────────────────
 
-def _shade_mask(ax: plt.Axes, mask_row: np.ndarray, t: np.ndarray, color: str = "grey", alpha: float = 0.25) -> None:
+
+def _shade_mask(
+    ax: plt.Axes, mask_row: np.ndarray, t: np.ndarray, color: str = "grey", alpha: float = 0.25
+) -> None:
     in_mask, span_start = False, 0.0
     for ti, mv in enumerate(mask_row):
         if mv and not in_mask:
@@ -167,6 +180,7 @@ def _shade_mask(ax: plt.Axes, mask_row: np.ndarray, t: np.ndarray, color: str = 
 
 
 # ── Figure 1: Transforms demo ─────────────────────────────────────────────────
+
 
 def plot_transforms(
     x: np.ndarray,
@@ -195,7 +209,8 @@ def plot_transforms(
     fig.suptitle(
         f"SSL pretext task transforms  —  SIPMEatingStudy / {participant} "
         f"(chewing window, 4 s @ 50 Hz, per-recording z-scored)",
-        fontsize=12, y=1.02,
+        fontsize=12,
+        y=1.02,
     )
 
     for col_i, (col_title, x_show, mask_show, extra) in enumerate(col_defs):
@@ -223,8 +238,13 @@ def plot_transforms(
             if extra == "permutation":
                 chunk = x.shape[1] // 4
                 for b_idx in range(1, 4):
-                    ax.axvline(b_idx * chunk / 50.0, color="#777777", linestyle="--",
-                               linewidth=0.8, alpha=0.9)
+                    ax.axvline(
+                        b_idx * chunk / 50.0,
+                        color="#777777",
+                        linestyle="--",
+                        linewidth=0.8,
+                        alpha=0.9,
+                    )
 
             ax.set_xlim(0, t[-1])
             ax.tick_params(labelsize=7)
@@ -246,6 +266,7 @@ def plot_transforms(
 
 # ── Figure 2: Reconstruction demo ────────────────────────────────────────────
 
+
 def plot_reconstruction(
     x: np.ndarray,
     mask: np.ndarray,
@@ -260,10 +281,9 @@ def plot_reconstruction(
 
     arch_names = list(recons.keys())
     col_colors = ["#1565C0", "#37474F"] + [ARCH_COLORS[a] for a in arch_names]
-    col_titles = (
-        ["Original\n(ground truth)", "Masked input\n(what the model sees)"]
-        + [f"{ARCH_LABELS.get(a, a)}\nreconstruction" for a in arch_names]
-    )
+    col_titles = ["Original\n(ground truth)", "Masked input\n(what the model sees)"] + [
+        f"{ARCH_LABELS.get(a, a)}\nreconstruction" for a in arch_names
+    ]
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.2 * n_cols, 2.0 * n_rows), sharey="row")
     if n_rows == 1:
@@ -272,7 +292,8 @@ def plot_reconstruction(
     fig.suptitle(
         "Masked reconstruction — original vs. model output on a held-out chewing window\n"
         "(bold segments = where the model had to reconstruct; light = unmasked context it could see)",
-        fontsize=11, y=1.01,
+        fontsize=11,
+        y=1.01,
     )
 
     for row_i, ch_name in enumerate(SENSOR_CHANNELS):
@@ -328,33 +349,42 @@ def plot_reconstruction(
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Visualize SSL transforms and reconstruction on real sensor data."
     )
     parser.add_argument(
-        "--interim-root", type=Path,
+        "--interim-root",
+        type=Path,
         default=Path("src/chewing_ssl/data/data/interim"),
         help="Root of per-recording z-scored interim segments",
     )
     parser.add_argument(
-        "--checkpoint-dir", type=Path,
+        "--checkpoint-dir",
+        type=Path,
         default=Path("checkpoints/pretrain"),
         help="Directory containing *_best.pt checkpoints from pretrain.py",
     )
     parser.add_argument(
-        "--architectures", nargs="+",
+        "--architectures",
+        nargs="+",
         default=["cnn", "bigru"],
         choices=list(ARCHITECTURES),
         help="Which architectures to load for reconstruction (skipped if checkpoint missing)",
     )
     parser.add_argument("--variant", default="personal")
     parser.add_argument("--dataset", default="SIPMEatingStudy")
-    parser.add_argument("--participant", default="p01",
-                        help="Participant to load the example window from")
+    parser.add_argument(
+        "--participant", default="p01", help="Participant to load the example window from"
+    )
     parser.add_argument("--out-dir", type=Path, default=Path("checkpoints/plots"))
-    parser.add_argument("--mask-seed", type=int, default=42,
-                        help="Seed for reproducible masking pattern in visualizations")
+    parser.add_argument(
+        "--mask-seed",
+        type=int,
+        default=42,
+        help="Seed for reproducible masking pattern in visualizations",
+    )
     args = parser.parse_args()
 
     print("\nSSL Visualization")
@@ -365,8 +395,10 @@ def main() -> None:
     x, participant, start_row = find_chewing_window(
         args.interim_root, args.dataset, args.participant, args.variant
     )
-    print(f"  Signal: {x.shape[0]} channels × {x.shape[1]} timesteps  "
-          f"({x.shape[1] / 50:.1f}s @ 50 Hz)")
+    print(
+        f"  Signal: {x.shape[0]} channels × {x.shape[1]} timesteps  "
+        f"({x.shape[1] / 50:.1f}s @ 50 Hz)"
+    )
 
     # ── Build the mask ──
     x_masked, mask = make_mask(x, seed=args.mask_seed)
@@ -391,14 +423,16 @@ def main() -> None:
         state = torch.load(ckpt_path, map_location="cpu", weights_only=True)
         model.load_state_dict(state["model_state_dict"])
         model.eval()
-        print(f"  [{arch}] checkpoint epoch={state.get('epoch', '?')}  "
-              f"val_loss={state.get('val_loss', float('nan')):.4f}")
+        print(
+            f"  [{arch}] checkpoint epoch={state.get('epoch', '?')}  "
+            f"val_loss={state.get('val_loss', float('nan')):.4f}"
+        )
 
-        x_t = torch.from_numpy(x).unsqueeze(0)             # (1, C, T)
-        mask_t = torch.from_numpy(mask).unsqueeze(0)       # (1, C, T)
+        x_t = torch.from_numpy(x).unsqueeze(0)  # (1, C, T)
+        mask_t = torch.from_numpy(mask).unsqueeze(0)  # (1, C, T)
         x_in = apply_mask_token(x_t, mask_t, model.mask_token)
         with torch.no_grad():
-            recon = model(x_in).squeeze(0).numpy()         # (C, T)
+            recon = model(x_in).squeeze(0).numpy()  # (C, T)
         recons[arch] = recon
 
     if recons:

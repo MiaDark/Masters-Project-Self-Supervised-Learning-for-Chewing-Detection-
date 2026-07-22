@@ -135,7 +135,10 @@ def _split_list(items: list[str], ratios: dict[str, float], seed: int) -> dict[s
 
 
 def assign_splits(
-    interim_root: Path, datasets: list[str] = DATASETS, ratios: dict[str, float] = SPLIT_RATIOS, seed: int = DEFAULT_SEED
+    interim_root: Path,
+    datasets: list[str] = DATASETS,
+    ratios: dict[str, float] = SPLIT_RATIOS,
+    seed: int = DEFAULT_SEED,
 ) -> dict:
     """Build the participant -> split assignment for every dataset, uniformly."""
     set_seed(seed)
@@ -156,11 +159,18 @@ def purposes_for(dataset: str, participant: str, splits: dict) -> list[str]:
     val -> finetune_val, test -> finetune_test.
     """
     label = splits[dataset][participant]
-    return {"train": ["pretrain", "finetune_train"], "val": ["finetune_val"], "test": ["finetune_test"]}[label]
+    return {
+        "train": ["pretrain", "finetune_train"],
+        "val": ["finetune_val"],
+        "test": ["finetune_test"],
+    }[label]
 
 
 def assign_pretrain_val_holdout(
-    splits: dict, datasets: list[str] = DATASETS, seed: int = DEFAULT_SEED, val_fraction: float = PRETRAIN_VAL_FRACTION
+    splits: dict,
+    datasets: list[str] = DATASETS,
+    seed: int = DEFAULT_SEED,
+    val_fraction: float = PRETRAIN_VAL_FRACTION,
 ) -> dict[str, list[str]]:
     """Within the pretrain-eligible participants of each dataset, hold out a small
     slice purely for monitoring masked-reconstruction loss during pretraining.
@@ -170,7 +180,9 @@ def assign_pretrain_val_holdout(
     """
     holdout: dict[str, list[str]] = {}
     for dataset in datasets:
-        eligible = sorted(p for p in splits[dataset] if "pretrain" in purposes_for(dataset, p, splits))
+        eligible = sorted(
+            p for p in splits[dataset] if "pretrain" in purposes_for(dataset, p, splits)
+        )
         sub = _split_list(
             eligible, {"pretrain_train": 1 - val_fraction, "pretrain_val": val_fraction}, seed + 1
         )
@@ -194,7 +206,11 @@ def build_window_index(
             participant = extract_participant(dataset, tag)
             for purpose in purposes_for(dataset, participant, splits):
                 if purpose == "pretrain":
-                    purpose = "pretrain_val" if participant in pretrain_val_holdout[dataset] else "pretrain_train"
+                    purpose = (
+                        "pretrain_val"
+                        if participant in pretrain_val_holdout[dataset]
+                        else "pretrain_train"
+                    )
                 seg_dir = interim_root / dataset / tag
                 for meta_path in sorted(seg_dir.glob("segment_*.json")):
                     meta = json.loads(meta_path.read_text())
@@ -240,15 +256,18 @@ def run(
         out_root.mkdir(parents=True, exist_ok=True)
         print("Computed new splits")
 
-
     if pretrain_val_holdout is None:
         pretrain_val_holdout = assign_pretrain_val_holdout(splits, datasets, seed)
 
-    splits_path.write_text(json.dumps({**splits, "pretrain_val_holdout": pretrain_val_holdout}, indent=2))
+    splits_path.write_text(
+        json.dumps({**splits, "pretrain_val_holdout": pretrain_val_holdout}, indent=2)
+    )
     print(f"Wrote {splits_path} (including pretrain_val_holdout)")
 
     if splits_only:
-        print("--splits-only: skipping window index (run again against the normalized tree once it exists).")
+        print(
+            "--splits-only: skipping window index (run again against the normalized tree once it exists)."
+        )
         return
 
     index = build_window_index(interim_root, splits, pretrain_val_holdout, datasets, window_len)
@@ -261,7 +280,9 @@ def run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build subject-disjoint splits and a window index.")
+    parser = argparse.ArgumentParser(
+        description="Build subject-disjoint splits and a window index."
+    )
     parser.add_argument(
         "--interim-root",
         type=Path,
@@ -275,10 +296,13 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("data/processed"))
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument(
-        "--splits-only", action="store_true",
+        "--splits-only",
+        action="store_true",
         help="Assign+write splits.json and stop, without building the window index.",
     )
-    parser.add_argument("--window-seconds", type=float, default=None, help="Override configs/preprocessing.yaml.")
+    parser.add_argument(
+        "--window-seconds", type=float, default=None, help="Override configs/preprocessing.yaml."
+    )
     args = parser.parse_args()
 
     window_len = int(args.window_seconds * TARGET_HZ) if args.window_seconds else WINDOW_LEN
@@ -294,7 +318,13 @@ class WindowDataset:
     segments the dataset spans.
     """
 
-    def __init__(self, index: pd.DataFrame, with_label: bool, channels: list[str] = SENSOR_CHANNELS, cache_size: int = 8):
+    def __init__(
+        self,
+        index: pd.DataFrame,
+        with_label: bool,
+        channels: list[str] = SENSOR_CHANNELS,
+        cache_size: int = 8,
+    ):
         self.index = index.reset_index(drop=True)
         self.with_label = with_label
         self.channels = channels

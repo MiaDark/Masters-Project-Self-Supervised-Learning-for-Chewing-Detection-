@@ -14,6 +14,7 @@ from chewing_ssl.common.utils.config import load_data_config
 
 DEFAULT_PARTICIPANT_PATTERN = r"^p0*(\d+)$"
 
+
 def parse_int_ranges(spec: str | None) -> set[int] | None:
     """Parse a range spec into a set of ints.
 
@@ -48,13 +49,14 @@ def wanted_extension(key: str, extensions: list[str]) -> bool:
         return True
     return any(key.lower().endswith(ext.lower()) for ext in extensions)
 
+
 def list_subfolders(s3, bucket: str, prefix: str) -> list[str]:
     """Return immediate subfolder names (no trailing slash) directly under prefix."""
     paginator = s3.get_paginator("list_objects_v2")
     names: list[str] = []
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
         for cp in page.get("CommonPrefixes", []):
-            names.append(cp["Prefix"][len(prefix):].rstrip("/"))
+            names.append(cp["Prefix"][len(prefix) :].rstrip("/"))
     return names
 
 
@@ -101,7 +103,7 @@ def participant_prefixes(s3, bucket, base_prefix, dataset, ds_cfg) -> list[tuple
                 if num is None or num not in wanted:
                     continue
 
-            label = f"{parent[len(dataset_prefix):]}{folder}".strip("/")
+            label = f"{parent[len(dataset_prefix) :]}{folder}".strip("/")
             selected.append((label, f"{parent}{folder}/"))
 
     return selected
@@ -169,24 +171,26 @@ def build_plan(s3, cfg, datasets_filter, dest_root) -> dict[str, list[PlanItem]]
                 s3, s3_cfg["bucket"], dataset, dataset_prefix, ds_cfg
             )
             if not anon_parts:
-                print(f"  WARNING [{dataset}]: 0 participant folders found under {dataset_prefix!r}")
+                print(
+                    f"  WARNING [{dataset}]: 0 participant folders found under {dataset_prefix!r}"
+                )
 
             for _label, s3_pfx, local_pfx in anon_parts:
                 for obj in list_objects(s3, s3_cfg["bucket"], s3_pfx):
                     if not wanted_extension(obj["Key"], extensions):
                         continue
-                    rel_within = obj["Key"][len(s3_pfx):]
-                    items.append(PlanItem(
-                        obj["Key"],
-                        obj["Size"],
-                        dest_root / local_pfx / rel_within,
-                    ))
+                    rel_within = obj["Key"][len(s3_pfx) :]
+                    items.append(
+                        PlanItem(
+                            obj["Key"],
+                            obj["Size"],
+                            dest_root / local_pfx / rel_within,
+                        )
+                    )
 
         else:
             # Default: existing logic (SIPMEatingStudy, Spectacle, SussexEatingUK)
-            parts = participant_prefixes(
-                s3, s3_cfg["bucket"], base_prefix, dataset, ds_cfg
-            )
+            parts = participant_prefixes(s3, s3_cfg["bucket"], base_prefix, dataset, ds_cfg)
             if not parts:
                 print(
                     f"  WARNING [{dataset}]: 0 participant folders matched "
@@ -197,16 +201,19 @@ def build_plan(s3, cfg, datasets_filter, dest_root) -> dict[str, list[PlanItem]]
                 for obj in list_objects(s3, s3_cfg["bucket"], prefix):
                     if not wanted_extension(obj["Key"], extensions):
                         continue
-                    rel = obj["Key"][len(base_prefix):]
-                    items.append(PlanItem(
-                        obj["Key"],
-                        obj["Size"],
-                        dest_root / rel,
-                    ))
+                    rel = obj["Key"][len(base_prefix) :]
+                    items.append(
+                        PlanItem(
+                            obj["Key"],
+                            obj["Size"],
+                            dest_root / rel,
+                        )
+                    )
 
         plan[dataset] = items
 
     return plan
+
 
 def _human(num_bytes: int) -> str:
     val = float(num_bytes)
@@ -269,7 +276,7 @@ def list_participants(s3, cfg, datasets_filter) -> None:
             weeks = ds_cfg.get("weeks")
             parents = [f"{dataset_prefix}{w}/" for w in weeks] if weeks else [dataset_prefix]
             for parent in parents:
-                label = parent[len(dataset_prefix):].rstrip("/") or "(root)"
+                label = parent[len(dataset_prefix) :].rstrip("/") or "(root)"
                 folders = sorted(list_subfolders(s3, s3_cfg["bucket"], parent))
                 print(f"  {label}: {len(folders)} folder(s) -> {', '.join(folders) or '(none)'}")
 
@@ -284,11 +291,14 @@ def main() -> None:
     parser.add_argument("--dest", default=cfg.get("paths", {}).get("raw", "data/raw"))
     parser.add_argument("--list", action="store_true", help="List participant folders and exit.")
     parser.add_argument(
-        "--dry-run", action="store_true", default=dl_cfg.get("dry_run", False),
+        "--dry-run",
+        action="store_true",
+        default=dl_cfg.get("dry_run", False),
         help="List files that would be downloaded without writing them.",
     )
     parser.add_argument(
-        "--no-skip-existing", action="store_true",
+        "--no-skip-existing",
+        action="store_true",
         help="Re-download even if a matching file already exists locally.",
     )
     args = parser.parse_args()
