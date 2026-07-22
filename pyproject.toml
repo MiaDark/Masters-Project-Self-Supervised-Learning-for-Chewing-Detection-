@@ -10,7 +10,6 @@ requires-python = ">=3.10"
 readme = "README.md"
 
 dependencies = [
-    "emteqai@git+https://github.com/emteqlabs/emteqai.git@0.6.1",
     "numpy",
     "pandas",
     "scipy",
@@ -25,6 +24,17 @@ dependencies = [
     "matplotlib",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+    "pytest-cov",
+    "mypy",
+]
+classical-ml = [
+    "emteqai @ git+https://github.com/emteqlabs/emteqai.git@0.6.1",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -37,11 +47,3 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["src/chewing_ssl"]
-
-[project.optional-dependencies]
-dev = [
-    "ruff",
-    "pytest",
-    "pytest-cov",
-    "mypy",
-]

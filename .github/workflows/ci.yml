@@ -27,10 +27,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Configure git for private repos
-        run: |
-          git config --global url."https://${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
       - name: Install project and dev dependencies
         run: |
           python -V
