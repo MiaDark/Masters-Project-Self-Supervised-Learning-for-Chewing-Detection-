@@ -23,3 +23,26 @@ datasets:
 
   SussexEatingUK:
     enabled: true
+
+  FEIT_eating_S05:
+    enabled: true
+    type: eating_subfolder
+    base_prefix: "raw_aligned_datasets/ocosense/"
+    download_subfolders: ["Eating"]
+
+  FEIT_eating:
+    enabled: true
+    type: eating_subfolder
+    base_prefix: "raw_aligned_datasets/ocosense/"
+    download_subfolders: ["Eating"]
+
+  Office_eating_s05:
+    enabled: true
+    type: eating_subfolder
+    base_prefix: "raw_aligned_datasets/ocosense/"
+    download_subfolders: ["Eating"]
+
+  DiverseNormative:
+    enabled: true
+    type: direct_csv
+    base_prefix: "raw_aligned_datasets/ocosense/"

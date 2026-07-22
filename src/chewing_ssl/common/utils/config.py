@@ -14,7 +14,7 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
     """Read a YAML file into a plain dict."""
     path = Path(path)
     if not path.is_absolute():
-        path = (Path(__file__).resolve().parents[2] / path).resolve()
+        path = (Path(__file__).resolve().parents[3] / path).resolve()
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
@@ -32,3 +32,13 @@ def load_data_config(path: str | Path = "configs/data.yaml") -> dict[str, Any]:
         cfg.setdefault("s3", {})["region"] = region
 
     return cfg
+
+
+def load_preprocessing_config(path: str | Path = "configs/preprocessing.yaml") -> dict[str, Any]:
+    """Load preprocess.py / windowing.py parameters (datasets, filter, window, splits)."""
+    return load_yaml(path)
+
+
+def load_augmentation_config(path: str | Path = "configs/augmentation.yaml") -> dict[str, Any]:
+    """Load chewing_ssl.ssl.models.augmentation parameters (decision 004)."""
+    return load_yaml(path)

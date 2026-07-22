@@ -54,3 +54,6 @@ raw/
 interim/
 processed/
 reports/
+raw_unscaled/
+interim_normalized/
+checkpoints_masked_normal_06th july

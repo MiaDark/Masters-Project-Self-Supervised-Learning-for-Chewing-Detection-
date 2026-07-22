@@ -1,0 +1,38 @@
+# Preprocessing + windowing parameters. Edit this to try different versions
+# (window sizes, filter cutoff, etc) rather than touching preprocess.py /
+# windowing.py directly. CLI flags on either script, when passed, override
+# the corresponding value here. See docs/preprocessing.md.
+
+# All 5 datasets are the post-scaling-revert-and-clip raw-count-scale ones
+# under raw_unscaled/ -- do not point this at data/raw or
+# src/chewing_ssl/data/data/raw, which mix in unreverted-scale data.
+datasets:
+  - SIPMEatingStudy
+  - SussexEatingUK
+  - FEIT_eating_S05
+  - Office_eating_s05
+  - Spectacle_NonMeal
+root: src/chewing_ssl/data/data/raw_unscaled
+
+resample:
+  target_hz: 50.0
+  gap_threshold_s: 1.0   # gap > this many seconds -> cut into a new segment
+  min_segment_s: 10.0    # segments shorter than this are discarded
+
+filter:
+  cutoff_hz: 8.0   # Butterworth low-pass, zero-phase; see docs/preprocessing.md for the reasoning
+  order: 4
+
+window:
+  window_seconds: 4.0
+  train_overlap: 0.5     # fraction overlap for train-purpose windows; eval-purpose windows never overlap
+
+splits:
+  ratios: {train: 0.8, val: 0.1, test: 0.1}   # applied uniformly to all 5 datasets
+  seed: 42
+  pretrain_val_fraction: 0.1   # slice of pretrain-eligible participants held out to monitor pretrain loss
+
+paths:
+  interim: data/interim                       # preprocess.py output (raw-scale, unnormalized)
+  interim_normalized: data/interim_normalized  # refit_global_norm.py output (global-normalized, training-ready)
+  processed: data/processed                    # splits.json, global_stats.json, window index

@@ -22,9 +22,9 @@ aws configure                    # stores AWS keys outside the repo
 ## 3. Download data
 
 ```bash
-python -m chewing_ssl.data.download --list      # see participant folders
-python -m chewing_ssl.data.download --dry-run    # preview files + total size
-python -m chewing_ssl.data.download              # download into data/raw/
+python -m chewing_ssl.common.data.download --list      # see participant folders
+python -m chewing_ssl.common.data.download --dry-run    # preview files + total size
+python -m chewing_ssl.common.data.download              # download into data/raw/
 ```
 
 See **[Data](data.md)** for what you are actually pulling, and

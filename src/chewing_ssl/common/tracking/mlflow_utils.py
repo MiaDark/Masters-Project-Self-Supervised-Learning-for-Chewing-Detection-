@@ -6,14 +6,6 @@ sensible local-file defaults so things work out of the box:
     MLFLOW_TRACKING_URI   default: file:./mlruns
     MLFLOW_EXPERIMENT_NAME default: chewing-ssl
 
-Typical usage in a training script:
-
-    from chewing_ssl.tracking.mlflow_utils import start_run, log_params
-    with start_run(run_name="pretrain_masked"):
-        log_params({"mask_ratio": 0.5, "lr": 1e-3, "seed": 42})
-        ...  # train
-        mlflow.log_metric("val_f1", f1)
-        log_pytorch_model(model, "encoder")
 """
 
 from __future__ import annotations
@@ -23,9 +15,16 @@ from contextlib import contextmanager
 from typing import Any
 
 import mlflow
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def _configure() -> None:
+    # mlflow>=3 deprecated the plain filesystem backend by default; this restores
+    # the documented zero-setup local file_store unless the user opts into a
+    # database backend instead (see MLFLOW_TRACKING_URI in .env).
+    os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
     mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns"))
     mlflow.set_experiment(os.getenv("MLFLOW_EXPERIMENT_NAME", "chewing-ssl"))
 

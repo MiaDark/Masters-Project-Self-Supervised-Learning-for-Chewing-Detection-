@@ -11,10 +11,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from chewing_ssl.data.loaders import (
+from chewing_ssl.common.data.loaders import (
     ACCEL_COLS,
     PROX_BROW_COLS,
     PROX_CHEEK_COLS,
+    PROX_TEMPLE_COLS,
     load_recording,
 )
 
@@ -23,10 +24,22 @@ CORRELATION_CHANNELS = (
     + ["nav_x_left_temple", "nav_y_left_temple", "nav_x_right_temple", "nav_y_right_temple"]
     + PROX_CHEEK_COLS
     + PROX_BROW_COLS
+    + PROX_TEMPLE_COLS
 )
 
+SIGNAL_CLIP_RANGES: dict[str, tuple[float, float]] = {
+    "accel_": (-5000, 5000),
+    "nav_": (-50, 50),
+}
 
-# ---- analysis -----------------------------------------------------------
+
+def clip_signal_ranges(df: pd.DataFrame) -> pd.DataFrame:
+    """Clip accelerometer/navigation/proximity columns to valid ranges."""
+    for prefix, (lo, hi) in SIGNAL_CLIP_RANGES.items():
+        cols = [c for c in df.columns if c.startswith(prefix)]
+        if cols:
+            df[cols] = df[cols].clip(lower=lo, upper=hi)
+    return df
 
 
 def find_bouts(label: pd.Series, datetime: pd.Series) -> pd.DataFrame:
@@ -95,7 +108,7 @@ def summarize(df: pd.DataFrame, label_col: str = "label") -> dict:
         "n_rows": len(df),
         "duration_minutes": (df["datetime"].max() - df["datetime"].min()).total_seconds() / 60,
         "columns": sorted(df.columns),
-        "sampling": sampling_diagnostics(df["datetime"]),
+        # "sampling": sampling_diagnostics(df["datetime"]),
         "missing_fraction": {
             c: float(df[c].isna().mean()) for c in df.columns if df[c].isna().any()
         },
@@ -115,9 +128,6 @@ def summarize(df: pd.DataFrame, label_col: str = "label") -> dict:
     return summary
 
 
-# ---- plots ----------------------------------------------------------------
-
-
 def _panels_for(df: pd.DataFrame) -> list[tuple[str, list[str]]]:
     panels = []
     if all(c in df.columns for c in ACCEL_COLS):
@@ -134,11 +144,18 @@ def _panels_for(df: pd.DataFrame) -> list[tuple[str, list[str]]]:
     prox_brow = [c for c in PROX_BROW_COLS if c in df.columns]
     if prox_brow:
         panels.append(("Proximity Brow", prox_brow))
+    prox_temple = [c for c in PROX_TEMPLE_COLS if c in df.columns]
+    if prox_temple:
+        panels.append(("Proximity Temple", prox_temple))
     return panels
 
 
 def plot_timeseries(
-    df: pd.DataFrame, out_path: Path, title: str, label_col: str = "label", max_points: int = 200_000
+    df: pd.DataFrame,
+    out_path: Path,
+    title: str,
+    label_col: str = "label",
+    max_points: int = 200_000,
 ) -> None:
     panels = _panels_for(df)
     if not panels:
@@ -183,7 +200,9 @@ def plot_zoom(
     plot_timeseries(window, out_path, title, label_col=label_col, max_points=200_000)
 
 
-def plot_class_balance(df: pd.DataFrame, out_path: Path, title: str, label_col: str = "label") -> None:
+def plot_class_balance(
+    df: pd.DataFrame, out_path: Path, title: str, label_col: str = "label"
+) -> None:
     if label_col not in df.columns:
         return
     counts = df[label_col].fillna(0).value_counts().sort_index()
@@ -199,7 +218,9 @@ def plot_class_balance(df: pd.DataFrame, out_path: Path, title: str, label_col: 
     plt.close(fig)
 
 
-def plot_bout_durations(df: pd.DataFrame, out_path: Path, title: str, label_col: str = "label") -> None:
+def plot_bout_durations(
+    df: pd.DataFrame, out_path: Path, title: str, label_col: str = "label"
+) -> None:
     if label_col not in df.columns:
         return
     bouts = find_bouts(df[label_col], df["datetime"])
@@ -289,9 +310,6 @@ def plot_correlation_heatmaps(
     plt.close(fig)
 
 
-# ---- entry point ------------------------------------------------------
-
-
 def discover_recordings(dataset: str, root: Path) -> list[tuple[Path, str]]:
     """Find every recording CSV for a dataset under root, paired with a short tag.
 
@@ -305,9 +323,14 @@ def discover_recordings(dataset: str, root: Path) -> list[tuple[Path, str]]:
             csvs = sorted(p.glob("sensor_data_*.csv"))
             if csvs:
                 items.append((csvs[0], p.name))
-    elif dataset == "SussexEatingUK":
+    elif dataset in ("SussexEatingUK", "FEIT_eating_S05", "Office_eating_s05"):
         for p in sorted((root / dataset).glob("*")):
             csvs = sorted((p / "Eating").glob("*.csv")) if (p / "Eating").is_dir() else []
+            if csvs:
+                items.append((csvs[0], p.name))
+    elif dataset == "DiverseNormative":
+        for p in sorted((root / dataset).glob("p*")):
+            csvs = sorted(p.glob("*.csv"))
             if csvs:
                 items.append((csvs[0], p.name))
     elif dataset == "Spectacle":
@@ -316,6 +339,12 @@ def discover_recordings(dataset: str, root: Path) -> list[tuple[Path, str]]:
                 csv = day / "daily_annotated.csv"
                 if csv.exists():
                     items.append((csv, f"{p.parent.name}_{p.name}_{day.name}"))
+    elif dataset == "Spectacle_NonMeal":
+        # Unlike DiverseNormative, each participant folder holds multiple
+        # snippet CSVs (see scripts/extract_spectacle_nonmeal.py) -> take all.
+        for p in sorted((root / dataset).glob("p*")):
+            for csv in sorted(p.glob("*.csv")):
+                items.append((csv, f"{p.name}_{csv.stem}"))
     else:
         raise ValueError(f"Unknown dataset {dataset!r}")
     return items
@@ -326,7 +355,9 @@ def _flatten_summary(dataset: str, tag: str, summary: dict) -> dict:
     sampling = summary.get("sampling", {})
     bout = summary.get("bout_duration_s", {})
     dead = [
-        c for c, v in summary.get("dead_channels", {}).items() if v.get("likely_dead_or_disconnected")
+        c
+        for c, v in summary.get("dead_channels", {}).items()
+        if v.get("likely_dead_or_disconnected")
     ]
     balance = summary.get("label_balance", {})
     n_pos = sum(v for k, v in balance.items() if float(k) == 1.0)
@@ -368,8 +399,11 @@ def run_batch(datasets: list[str], root: Path, out_root: Path, zoom_minutes: flo
             print(f"Wrote {agg_path}")
 
 
-def run(dataset: str, path: Path, out_dir: Path, tag: str, zoom_minutes: float, verbose: bool = True) -> dict:
+def run(
+    dataset: str, path: Path, out_dir: Path, tag: str, zoom_minutes: float, verbose: bool = True
+) -> dict:
     df = load_recording(dataset, path)
+    df = clip_signal_ranges(df)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     summary = summarize(df)
@@ -377,28 +411,10 @@ def run(dataset: str, path: Path, out_dir: Path, tag: str, zoom_minutes: float, 
 
     title_prefix = f"{dataset} / {tag}"
     plot_timeseries(df, out_dir / "overview.png", f"{title_prefix} - overview")
-    plot_zoom(df, out_dir / "zoom.png", f"{title_prefix} - zoom on longest bout", pad_minutes=zoom_minutes)
-    plot_class_balance(df, out_dir / "class_balance.png", f"{title_prefix} - label balance")
-    plot_bout_durations(df, out_dir / "bout_durations.png", f"{title_prefix} - bout durations")
-    plot_sampling_intervals(df, out_dir / "sampling_intervals.png", f"{title_prefix} - sampling intervals")
-
-    fs = summary.get("sampling", {}).get("estimated_hz")
-    if fs and "accel_z" in df.columns:
-        plot_psd_comparison(
-            df, out_dir / "psd_accel_z.png", f"{title_prefix} - PSD accel_z", "accel_z", fs
-        )
-    if fs and "nav_y_left_temple" in df.columns:
-        plot_psd_comparison(
-            df,
-            out_dir / "psd_nav_y_left_temple.png",
-            f"{title_prefix} - PSD nav_y_left_temple",
-            "nav_y_left_temple",
-            fs,
-        )
-
-    plot_correlation_heatmaps(
-        df, out_dir / "correlation.png", f"{title_prefix} - sensor correlation", CORRELATION_CHANNELS
-    )
+    # plot_zoom(df, out_dir / "zoom.png", f"{title_prefix} - zoom on longest bout", pad_minutes=zoom_minutes)
+    # plot_class_balance(df, out_dir / "class_balance.png", f"{title_prefix} - label balance")
+    # plot_bout_durations(df, out_dir / "bout_durations.png", f"{title_prefix} - bout durations")
+    # plot_sampling_intervals(df, out_dir / "sampling_intervals.png", f"{title_prefix} - sampling intervals")
 
     if verbose:
         print(json.dumps(summary, indent=2, default=str))
@@ -410,7 +426,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="EDA plots + summary for OCOsense recording CSVs.")
     parser.add_argument(
         "--dataset",
-        choices=["SIPMEatingStudy", "SussexEatingUK", "Spectacle"],
+        choices=[
+            "SIPMEatingStudy",
+            "SussexEatingUK",
+            "Spectacle",
+            "Spectacle_NonMeal",
+            "DiverseNormative",
+            "FEIT_eating_S05",
+            "Office_eating_s05",
+        ],
         help="Required unless --all is given.",
     )
     parser.add_argument("--path", type=Path, help="Path to one recording CSV (single-file mode).")
@@ -418,15 +442,31 @@ def main() -> None:
     parser.add_argument("--tag", default=None, help="Subfolder name; defaults to the file stem.")
     parser.add_argument("--zoom-minutes", type=float, default=3.0)
     parser.add_argument(
-        "--all", action="store_true", help="Run over every recording found under --root for --dataset(s)."
+        "--all",
+        action="store_true",
+        help="Run over every recording found under --root for --dataset(s).",
     )
     parser.add_argument(
-        "--root", type=Path, default=Path("data/raw"), help="Root containing the per-dataset folders."
+        "--root",
+        type=Path,
+        default=Path("data/raw"),
+        help="Root containing the per-dataset folders.",
     )
     args = parser.parse_args()
 
     if args.all:
-        datasets = [args.dataset] if args.dataset else ["SIPMEatingStudy", "SussexEatingUK", "Spectacle"]
+        datasets = (
+            [args.dataset]
+            if args.dataset
+            else [
+                "SIPMEatingStudy",
+                "SussexEatingUK",
+                "Spectacle",
+                "DiverseNormative",
+                "FEIT_eating_S05",
+                "Office_eating_s05",
+            ]
+        )
         run_batch(datasets, args.root, args.out, args.zoom_minutes)
         return
 

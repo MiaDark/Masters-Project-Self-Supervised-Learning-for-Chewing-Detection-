@@ -11,12 +11,28 @@ readme = "README.md"
 
 dependencies = [
     "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "pyarrow",
+    "torch",
     "pyyaml",
     "python-dotenv",
     "boto3",
     "tqdm",
     "mlflow",
     "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+    "pytest-cov",
+    "mypy",
+]
+classical-ml = [
+    "emteqai @ git+https://github.com/emteqlabs/emteqai.git@0.6.1",
 ]
 
 [tool.setuptools.packages.find]
@@ -29,10 +45,5 @@ target-version = "py310"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
-[project.optional-dependencies]
-dev = [
-    "ruff",
-    "pytest",
-    "pytest-cov",
-    "mypy",
-]
+[tool.coverage.run]
+source = ["src/chewing_ssl"]

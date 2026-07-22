@@ -3,6 +3,7 @@ numpy
 pandas
 scipy
 scikit-learn
+pyarrow  # parquet I/O for data/interim
 
 # Deep learning (install the CUDA build that matches your machine; see README)
 torch

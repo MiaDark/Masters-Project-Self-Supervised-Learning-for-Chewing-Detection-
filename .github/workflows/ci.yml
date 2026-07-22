@@ -32,6 +32,7 @@ jobs:
           python -V
           pip --version
           pip install --upgrade pip setuptools wheel
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[dev]"
 
       - name: Lint / format
@@ -41,4 +42,14 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pytest tests -q --maxfail=1 || test $? -eq 5
+          python -m pytest tests -q --maxfail=1 \
+            --cov=chewing_ssl --cov-report=term-missing --cov-report=xml \
+            || test $? -eq 5
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
