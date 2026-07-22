@@ -17,13 +17,13 @@ unreliable channel across every dataset (docs/data.md); proximity is simply
 out of scope for this model.
 
 Each raw channel also gets a first-derivative sibling (see below), so the
-full channel set used everywhere downstream — normalization, windowing, the
-model's input dimension — is **10 channels**: `SENSOR_CHANNELS =
+full channel set used everywhere downstream: normalization, windowing, the
+model's input dimension is **10 channels**: `SENSOR_CHANNELS =
 RAW_CHANNELS + DERIVATIVE_CHANNELS` in `preprocess.py`.
 
 ## Pipeline steps, in order
 
-1. **Load + select columns** (`load_recording` + `select_columns`) — rename
+1. **Load + select columns** (`load_recording` + `select_columns`): rename
    to canonical column names (per dataset naming convention), unify the
    label to `1`=chewing/else=not-chewing, keep only `datetime` + the 5 raw
    channels + `label`.

@@ -2,9 +2,7 @@
 
 ## Package layout
 
-All importable logic lives in `src/chewing_ssl/`. Notebooks and scripts are
-entry points only — anything reusable belongs in the package so it is testable
-and covered by CI.
+All importable logic lives in `src/chewing_ssl/`.
 
 ```
 src/chewing_ssl/
@@ -18,13 +16,11 @@ src/chewing_ssl/
 ```
 
 ## SSL Pretraining Plan Layout
-Sussex and SIPM datasets are bite level annotations, whereas Spectacle is meal level annotations. 
-Bite-level (chewing-event) detection is harder than meal-level detection, and that's actually informative: from the EDA, bite bouts in SIPM/Sussex are short (~3–17s, mean 7–11s) with the chewing-specific 1.5–2 Hz rhythm only visible at that resolution, whereas Spectacle's "bouts" are whole meals (mean 147s, up to 8 min), separable by gross signal envelope alone. So meal-level would score higher on paper, but it's a weaker demonstration of why the sensor suite and the masked-reconstruction pretext task matter — accelerometer-only HAR could mostly solve meal detection.
+Sussex, SIPM, FEIT and Office datasets are bite level annotations, whereas Spectacle is meal level annotations, and is used to balance the dataset with non-eating samples. 
+Bite-level (chewing-event) detection is harder than meal-level detection, and that's actually informative: from the EDA, bite bouts are short (~3–17s, mean 7–11s) with the chewing-specific 1.5–2 Hz rhythm only visible at that resolution, whereas Spectacle's "bouts" are whole meals (mean 147s, up to 8 min), separable by gross signal envelope alone. 
 
-We define two independent problems:
-
-- Primary task: bite-level chewing detection. Fine-tune and evaluate on SIPM + Sussex only (both have per-bite ground truth), subject-disjoint split (e.g. 60/20/20 of participants, per decision 003).
-- Secondary task: free-living meal-detection transfer test. Take the same pretrained encoder (possibly with a small new head, or by aggregating bite-level outputs into time windows) and evaluate against held-out Spectacle participants' Label column. This tests whether what the model learned in the lab generalizes to real-world, multi-day, sensor-dropout conditions, which directly feeds the uncertainty/energy trade-off story, since that's precisely where confidence should degrade.
+We define the problem:
+- Primary task: bite-level chewing detection.
 
 ### Data allocation:
 - SSL pretraining (unlabelled, label-blind): all of Spectacle, including the 15 files with no Label at all, plus the training-split participants of SIPM/Sussex. Per decision 001, Spectacle is the natural backbone here since it's largest and most free-living.
@@ -81,62 +77,22 @@ The rationale for each stage is recorded in the
 
 ### Normalization (raw -> interim)
 
-Implemented in `chewing_ssl.data.preprocess`. Two reasons normalization is
-required at all, both grounded in the EDA:
-
 1. **Channels live on incomparable scales.** Nav ≈ -0.5 to 0.5, Proximity ≈
    5–45, Accelerometer ≈ -10 to 10 (m/s²). Fed in raw, a model's loss is
    dominated by whichever channel has the largest numbers (Proximity), not
    whichever is most informative for chewing.
-2. **Per-participant baseline offset is a confound.** The Nav/Proximity
-   baseline level differs by participant (fit, skin tone, calibration) — a
-   nuisance variable, not signal. Left uncorrected, a model can partly learn
-   "this baseline level correlates with this participant's chewing rate"
-   instead of the actual temporal pattern, which leaks participant identity
-   and hurts generalization to held-out test participants (decision 003).
-
-Both reasons are addressed by z-score normalization (`(x - mean) / std`) per
-channel, but *which* mean/std to use is a genuine design fork, so both
-variants are produced side by side rather than picked upfront:
-
-- **`personal`** — each segment is normalized using its own mean/std.
-  Directly removes the per-participant baseline-offset confound. At
-  deployment this needs a short calibration window or a running estimate;
-  not a blocker, just an extra step.
 - **`global`** — one mean/std per channel, pooled across the whole corpus
   (`data/interim/global_stats.json`), applied uniformly. Simpler at
   deployment (no calibration step), but risks the model keying on absolute
   baseline level as a per-participant shortcut rather than the dynamic
   chewing pattern.
 
-Both are written to `data/interim/{personal,global}/<dataset>/<tag>/`, sharing
-the same gap-segmentation and resampling (done once, cached, then normalized
-two ways) so the only difference between them is the normalization itself —
-making it a clean ablation once both a personalized and a global model are
-trained and compared.
-
-**Resolved:** `data/interim/global_stats.json` was originally pooled over
-*all* recordings, computed before the subject-disjoint train/val/test split
-existed -- flagged as a caveat during windowing. `chewing_ssl.data.refit_global_norm`
-has since refit it on pretrain-eligible participants only (the same
-participants whose windows feed the `pretrain` purpose: 1,212 segments) and
-re-applied the corrected stats to every segment, including held-out
-val/test/meal-test ones (so they're still normalized consistently, just
-never having contributed to fitting the stats). This worked without
-re-resampling anything: each `personal` segment's own `channel_stats` (in
-its `.json` sidecar) make its per-recording normalization exactly invertible
-(`raw = personal_value * std + mean`), validated by round-tripping the old
-stats through the same path and confirming it reproduced the original
-`global` variant to float32 precision (~1e-7). The pre-split stats are kept
-at `data/interim/global_stats_presplit_backup.json` for reference.
+Written to `data/interim/{personal,global}/<dataset>/<tag>/`, sharing
+the same gap-segmentation and resampling (done once, cached, then normalized).
 
 ### Windowing (interim -> processed)
 
-Implemented in `chewing_ssl.data.windowing`. A preprocessed segment ranges
-from 10 seconds to ~10.5 hours (Spectacle's free-living days) -- far too
-variable to feed a model directly, and the wrong shape for either pretext
-task in any case. Windowing turns segments into fixed-length, fixed-shape
-training examples, which is required for four reasons:
+Implemented in `chewing_ssl.data.windowing`.
 
 1. **Pretext tasks need a bounded unit to operate on.** Masked reconstruction
    needs a defined span to hide and reconstruct; cross-sensor prediction
