@@ -146,13 +146,29 @@ def main() -> None:
     )
     parser.add_argument("--architecture", required=True, choices=list(ARCHITECTURES))
     parser.add_argument(
+        "--pretext-task",
+        required=True,
+        choices=["channel", "span", "both"],
+        help="'channel' (whole-channel masking only), 'span' (temporal span masking only), "
+        "or 'both' (legacy OR'd combination). Run 'channel' and 'span' as separate pretraining "
+        "runs to ablate them, rather than always combining -- see ssl/models/masking.py.",
+    )
+    parser.add_argument(
         "--dataset",
         default=None,
         help="Restrict to one dataset (e.g. SIPMEatingStudy). Default: all datasets.",
     )
     parser.add_argument("--processed-root", type=Path, default=Path("data/processed"))
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("checkpoints/pretrain"))
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument(
+        "--window-seconds",
+        type=float,
+        default=None,
+        help="Informational only (window length is implicit in --processed-root's index) -- "
+        "recorded in the checkpoint/MLflow so downstream scripts and the results summary know "
+        "which window-size variant this run used without having to parse directory names.",
+    )
+    parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument(
@@ -174,6 +190,7 @@ def main() -> None:
 
     print(f"\n{'=' * 60}")
     print(f"  Architecture : {args.architecture}")
+    print(f"  Pretext task : {args.pretext_task}")
     print(f"  Dataset      : {args.dataset or 'all'}")
     print(f"  Device       : {device}")
     print(f"  Epochs       : {args.epochs}  |  Batch size: {args.batch_size}  |  LR: {args.lr}")
@@ -213,6 +230,7 @@ def main() -> None:
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     mask_kwargs = {
+        "mode": args.pretext_task,
         "span_mask_ratio": args.mask_span_ratio,
         "channel_mask_prob": args.mask_channel_prob,
     }
@@ -230,12 +248,20 @@ def main() -> None:
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_val_loss = float("inf")
     history = []
+    # window_len is implicit in the index (end - start), not a CLI parameter --
+    # inferred here so it can be stamped into the checkpoint for downstream
+    # scripts (finetune.py, evaluate_bouts.py) to auto-detect, and so the
+    # results summary CSV records it without parsing directory names.
+    window_len = int(train_index.iloc[0]["end"] - train_index.iloc[0]["start"])
+    run_name = f"pretrain_{args.pretext_task}_{args.architecture}_w{window_len}"
 
     print()
-    with start_run(run_name=f"pretrain_{args.architecture}"):
+    with start_run(run_name=run_name):
         log_params(
             {
                 "architecture": args.architecture,
+                "pretext_task": args.pretext_task,
+                "window_len": window_len,
                 "dataset": args.dataset or "all",
                 "n_params": n_params,
                 "epochs": args.epochs,
@@ -294,10 +320,14 @@ def main() -> None:
 
             if val_m["loss"] < best_val_loss:
                 best_val_loss = val_m["loss"]
-                ckpt_path = args.checkpoint_dir / f"{args.architecture}_best.pt"
+                ckpt_path = args.checkpoint_dir / f"{args.architecture}_{args.pretext_task}_best.pt"
                 torch.save(
                     {
                         "model_state_dict": model.state_dict(),
+                        "architecture": args.architecture,
+                        "pretext_task": args.pretext_task,
+                        "window_len": window_len,
+                        "model_kwargs": MODEL_KWARGS[args.architecture],
                         "epoch": epoch,
                         "val_loss": best_val_loss,
                     },
@@ -306,7 +336,7 @@ def main() -> None:
                 print(f"  ✓ New best val_loss={best_val_loss:.4f}  →  {ckpt_path}")
 
         log_metrics({"best_val_loss": best_val_loss})
-        history_path = args.checkpoint_dir / f"{args.architecture}_history.json"
+        history_path = args.checkpoint_dir / f"{args.architecture}_{args.pretext_task}_history.json"
         history_path.write_text(json.dumps(history, indent=2))
 
     print(f"\n{'=' * 60}")

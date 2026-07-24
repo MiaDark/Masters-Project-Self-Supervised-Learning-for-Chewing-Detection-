@@ -1,46 +1,32 @@
-"""Fine-tune a pretrained BiGRU encoder for per-timestep chewing detection.
+"""Fine-tune a per-timestep chewing detector on top of a masked-reconstruction
+pretrained encoder -- architecture-agnostic (CNN or Bi-GRU) and pretext-task
+-agnostic (channel-only / span-only / both masking), since pretrain.py now
+stamps `architecture`, `pretext_task`, `window_len` and `model_kwargs`
+directly into the checkpoint. No `--architecture` flag needed here: it's
+auto-detected from whichever checkpoint is passed.
 
-Two-phase strategy
-------------------
-Phase 1  (--phase1-epochs, default 5):
-    Encoder frozen.  Only the classification head trains.  Fast convergence,
-    no risk of corrupting pretrained representations before the head is stable.
+ChewingDetector wraps ANY of the two encoders behind one interface:
+  - Bi-GRU's encode() already returns full temporal resolution (B, T, D).
+  - CNN's encode() returns the downsampled bottleneck (B, T', D), T' < T --
+    the head's output is linearly upsampled back to T (a small, decoupled
+    step, not reusing the pretrained decoder/skip connections) so both
+    architectures expose the same (B, T) per-timestep logit interface.
 
-Phase 2  (--phase2-epochs, default 10):
-    Encoder unfrozen with a 10x lower learning rate than the head.
-    Allows the GRU representations to adapt to the chewing task while
-    preventing catastrophic forgetting of the pretraining structure.
+Three-phase gradual-unfreezing strategy (deeper than the previous two-phase
+frozen/unfrozen split, per the request to make fine-tuning more thorough
+now that GPU time is available):
+  Phase 1 (--phase1-epochs): encoder fully frozen, head-only.
+  Phase 2 (--phase2-epochs): only the encoder's LAST block unfrozen (the
+      final Bi-GRU layer / the CNN bottleneck) at a low LR -- the part
+      closest to the embedding adapts first, matching the intuition that
+      earlier layers hold more generic, reusable structure.
+  Phase 3 (--phase3-epochs): entire encoder unfrozen at an even lower LR.
+Each phase gets its own cosine LR schedule (--lr-schedule cosine, default)
+decaying from that phase's starting LR to ~0 over that phase's epochs.
 
-Metrics (logged every epoch)
------------------------------
-  loss       -- binary cross-entropy on z-scored per-timestep labels
-  accuracy   -- fraction of timesteps correctly classified (threshold 0.5)
-  precision  -- of all timesteps predicted as chewing, fraction truly chewing
-  recall     -- of all actual chewing timesteps, fraction correctly detected
-  f1         -- harmonic mean of precision & recall  ← primary metric
-  auc        -- ROC-AUC, threshold-free discrimination ability
-
-The checkpoint is saved when val_f1 improves, not when val_loss improves.
-F1 is the metric that matters for the downstream chewing detection task.
-
-Loading checkpoints
--------------------
-Expects a checkpoint saved by chewing_ssl.ssl.masked.pretrain as a
-BiGRUAutoencoder (keys = 'mask_token', 'encoder.*', 'head.*'). Checkpoints
-with double-nested 'encoder.encoder.*' keys (an older, now-removed pretext-task
-pretraining format) are still auto-detected and unwrapped for backward
-compatibility with checkpoints saved before that format was dropped.
-
-Usage (run from project root)
-------------------------------
-  # Step 0 — pretrain BiGRU (if not done yet):
-  python -m chewing_ssl.ssl.masked.pretrain \\
-      --architecture bigru --dataset SIPMEatingStudy
-
-  # Step 1 — fine-tune:
-  python -m chewing_ssl.ssl.masked.finetune \\
-      --checkpoint checkpoints/pretrain/bigru_personal_best.pt \\
-      --dataset SIPMEatingStudy
+Checkpoint saved on best val_f1 (not val_loss) -- F1 is what matters for the
+downstream chewing-detection task. Final held-out test evaluation runs
+automatically once training finishes.
 """
 
 from __future__ import annotations
@@ -55,142 +41,113 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.metrics import (
-    accuracy_score,
-    f1_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
-from tqdm import tqdm
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS
 from chewing_ssl.common.data.windowing import WindowDataset
-from chewing_ssl.ssl.models.bigru_autoencoder import BiGRUAutoencoder
 from chewing_ssl.common.tracking.mlflow_utils import log_metrics, log_params, start_run
 from chewing_ssl.common.utils.seed import set_seed
+from chewing_ssl.ssl.masked.pretrain import MODEL_KWARGS, load_index, pick_device, shuffle_by_segment
+from chewing_ssl.ssl.models import ARCHITECTURES
 
 N_CHANNELS = len(SENSOR_CHANNELS)
-HIDDEN_SIZE = 64  # matches BiGRUAutoencoder default
-GRU_LAYERS = 2
 
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 
 
 class ChewingDetector(nn.Module):
-    """BiGRU encoder + per-timestep binary chewing head.
-
-    The GRU produces a 128-dimensional context vector at every timestep
-    (64 forward + 64 backward).  The head projects each timestep's vector
-    independently to a single chewing logit, so the output is (B, T) —
-    one probability per input sample.
-    """
+    """Any pretrained encoder (CNN or Bi-GRU) + a per-timestep binary chewing head."""
 
     def __init__(
         self,
-        n_channels: int = N_CHANNELS,
-        hidden_size: int = HIDDEN_SIZE,
-        gru_layers: int = GRU_LAYERS,
+        encoder: nn.Module,
+        architecture: str,
+        embedding_dim: int,
+        head_hidden_dim: int = 64,
         head_dropout: float = 0.3,
     ):
         super().__init__()
-        self.hidden_size = hidden_size
-        self.gru = nn.GRU(
-            input_size=n_channels,
-            hidden_size=hidden_size,
-            num_layers=gru_layers,
-            batch_first=True,
-            bidirectional=True,
-            dropout=0.1 if gru_layers > 1 else 0.0,
+        self.encoder = encoder
+        self.architecture = architecture
+        self.head = nn.Sequential(
+            nn.Linear(embedding_dim, head_hidden_dim),
+            nn.GELU(),
+            nn.Dropout(head_dropout),
+            nn.Linear(head_hidden_dim, head_hidden_dim),
+            nn.GELU(),
+            nn.Linear(head_hidden_dim, 1),
         )
-        self.dropout = nn.Dropout(head_dropout)
-        self.head = nn.Linear(hidden_size * 2, 1)
 
-    def copy_encoder_weights(self, gru_module: nn.GRU) -> None:
-        self.gru.load_state_dict(gru_module.state_dict())
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """x: (B, C, T) -> logits: (B, T)."""
+        h = self.encoder.encode(x)  # (B, T', embedding_dim)
+        logits = self.head(h).squeeze(-1)  # (B, T')
+        t_target = x.shape[-1]
+        if logits.shape[1] != t_target:
+            # CNN's encode() is downsampled (T' < T) -- upsample the HEAD'S
+            # OUTPUT (not the encoder's features) back to full resolution.
+            # Decoupled from the pretrained decoder/skip connections on
+            # purpose: this head has to work for either architecture.
+            logits = F.interpolate(
+                logits.unsqueeze(1), size=t_target, mode="linear", align_corners=False
+            ).squeeze(1)
+        return logits
 
     def freeze_encoder(self) -> None:
-        for p in self.gru.parameters():
+        for p in self.encoder.parameters():
             p.requires_grad = False
 
     def unfreeze_encoder(self) -> None:
-        for p in self.gru.parameters():
+        for p in self.encoder.parameters():
             p.requires_grad = True
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """x: (B, C, T)  →  logits: (B, T)"""
-        h, _ = self.gru(x.transpose(1, 2))  # (B, T, 2*hidden)
-        return self.head(self.dropout(h)).squeeze(-1)  # (B, T)
+    def last_encoder_block_parameters(self) -> list[nn.Parameter]:
+        """The encoder sub-module closest to the embedding output -- the
+        final Bi-GRU layer, or the CNN's bottleneck block."""
+        if self.architecture == "bigru":
+            return self.encoder.layer_parameters(self.encoder.num_layers - 1)
+        if self.architecture == "cnn":
+            return list(self.encoder.bottleneck.parameters())
+        raise ValueError(f"Unknown architecture {self.architecture!r}")
 
-    def hidden_states(self, x: torch.Tensor) -> torch.Tensor:
-        """Return raw GRU hidden states (B, T, 2*hidden) without grad."""
-        with torch.no_grad():
-            h, _ = self.gru(x.transpose(1, 2))
-        return h
+    def unfreeze_last_encoder_block(self) -> None:
+        self.freeze_encoder()
+        for p in self.last_encoder_block_parameters():
+            p.requires_grad = True
+
+
+def load_pretrained_encoder(path: Path) -> tuple[nn.Module, dict]:
+    """Load an encoder from a pretrain.py checkpoint, auto-detecting
+    architecture/model_kwargs from the metadata pretrain.py now stamps into
+    every checkpoint (architecture, pretext_task, window_len, model_kwargs).
+    Requires the new checkpoint format -- checkpoints from before this
+    metadata existed need to be regenerated (see docs/ssl_masked.md)."""
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    missing = [k for k in ("architecture", "model_state_dict") if k not in state]
+    if missing:
+        raise ValueError(
+            f"{path} is missing {missing} -- looks like a pre-ablation-study checkpoint "
+            "(saved before pretrain.py stamped architecture/pretext_task/model_kwargs "
+            "metadata). Re-run pretrain.py to regenerate it."
+        )
+    architecture = state["architecture"]
+    model_kwargs = state.get("model_kwargs", MODEL_KWARGS[architecture])
+    encoder = ARCHITECTURES[architecture](n_channels=N_CHANNELS, **model_kwargs)
+    encoder.load_state_dict(state["model_state_dict"])
+    meta = {
+        "architecture": architecture,
+        "pretext_task": state.get("pretext_task", "unknown"),
+        "window_len": state.get("window_len"),
+        "embedding_dim": encoder.embedding_dim,
+        "model_kwargs": model_kwargs,
+    }
+    return encoder, meta
 
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
-
-
-def load_bigru_from_checkpoint(path: Path) -> BiGRUAutoencoder:
-    """Load a BiGRUAutoencoder from a pretrain checkpoint.
-
-    pretrain.py saves the BiGRUAutoencoder directly:
-        keys = 'mask_token', 'encoder.*' (GRU), 'head.*'
-    Checkpoints from the older, now-removed pretext-task pretraining format
-    wrapped it as 'encoder.mask_token', 'encoder.encoder.*', 'encoder.head.*',
-    identified by the double-nested 'encoder.encoder.*' keys, and are still
-    auto-unwrapped here for backward compatibility.
-    """
-    state = torch.load(path, map_location="cpu", weights_only=True)["model_state_dict"]
-    if any(k.startswith("encoder.encoder.") for k in state):
-        # Legacy pretext-task format: strip the outer 'encoder.' prefix
-        # to recover the BiGRUAutoencoder state dict.
-        state = {k[len("encoder.") :]: v for k, v in state.items() if k.startswith("encoder.")}
-    bigru = BiGRUAutoencoder(n_channels=N_CHANNELS)
-    bigru.load_state_dict(state)
-    return bigru
-
-
-def pick_device(requested: str | None = None) -> torch.device:
-    if requested:
-        return torch.device(requested)
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
-def load_index(
-    processed_root: Path,
-    variant: str,
-    purpose: str,
-    max_windows: int | None,
-    seed: int,
-    dataset: str | None,
-) -> pd.DataFrame:
-    index = pd.read_parquet(processed_root / "index" / variant / f"{purpose}.parquet")
-    if dataset:
-        index = index[index["dataset"] == dataset].reset_index(drop=True)
-    if max_windows is not None and len(index) > max_windows:
-        index = index.sample(n=max_windows, random_state=seed).reset_index(drop=True)
-    return index
-
-
-def shuffle_by_segment(index: pd.DataFrame, seed: int) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    segs = index["segment_path"].unique().copy()
-    rng.shuffle(segs)
-    order = {s: i for i, s in enumerate(segs)}
-    return (
-        index.assign(_o=index["segment_path"].map(order))
-        .sort_values("_o")
-        .drop(columns="_o")
-        .reset_index(drop=True)
-    )
 
 
 def compute_metrics(logits: torch.Tensor, labels: torch.Tensor, threshold: float = 0.5) -> dict:
@@ -218,6 +175,7 @@ def run_epoch(
     optimizer: torch.optim.Optimizer | None,
     pos_weight: torch.Tensor,
     epoch_label: str = "",
+    grad_clip: float = 1.0,
 ) -> dict:
     is_train = optimizer is not None
     model.train(is_train)
@@ -239,6 +197,10 @@ def run_epoch(
             if is_train:
                 optimizer.zero_grad()
                 loss.backward()
+                if grad_clip is not None:
+                    nn.utils.clip_grad_norm_(
+                        (p for p in model.parameters() if p.requires_grad), grad_clip
+                    )
                 optimizer.step()
 
             total_loss += loss.item()
@@ -265,45 +227,107 @@ def print_metrics(metrics: dict, prefix: str = "") -> None:
     )
 
 
+def run_phase(
+    phase: int,
+    n_epochs: int,
+    model: ChewingDetector,
+    optimizer: torch.optim.Optimizer,
+    lr_schedule: str,
+    train_index: pd.DataFrame,
+    val_loader: DataLoader,
+    device: torch.device,
+    batch_size: int,
+    pos_weight: torch.Tensor,
+    seed: int,
+    seed_offset: int,
+    best_ckpt: Path,
+    best_val_f1: float,
+    history: list[dict],
+    extra_meta: dict,
+) -> float:
+    scheduler = (
+        torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(n_epochs, 1))
+        if lr_schedule == "cosine"
+        else None
+    )
+    for epoch in range(n_epochs):
+        t0 = time.time()
+        lbl = f"P{phase} epoch {epoch + 1}/{n_epochs}"
+        print(f"  {lbl}")
+        shuffled = shuffle_by_segment(train_index, seed + seed_offset + epoch)
+        train_loader = DataLoader(
+            WindowDataset(shuffled, with_label=True), batch_size=batch_size, shuffle=False
+        )
+        train_m = run_epoch(model, train_loader, device, optimizer, pos_weight, lbl)
+        val_m = run_epoch(model, val_loader, device, None, pos_weight, lbl)
+        if scheduler is not None:
+            scheduler.step()
+        dt = time.time() - t0
+
+        log_metrics({f"p{phase}_train_{k}": v for k, v in train_m.items()}, step=epoch)
+        log_metrics({f"p{phase}_val_{k}": v for k, v in val_m.items()}, step=epoch)
+        print_metrics(train_m, prefix="  train  ")
+        print_metrics(val_m, prefix="  val    ")
+        print(f"  ({dt:.1f}s)")
+
+        history.append(
+            {
+                "phase": phase,
+                "epoch": epoch,
+                **{f"train_{k}": v for k, v in train_m.items()},
+                **{f"val_{k}": v for k, v in val_m.items()},
+            }
+        )
+
+        if val_m["f1"] > best_val_f1:
+            best_val_f1 = val_m["f1"]
+            torch.save(
+                {
+                    "model_state_dict": model.state_dict(),
+                    "phase": phase,
+                    "epoch": epoch,
+                    "val_f1": best_val_f1,
+                    **extra_meta,
+                },
+                best_ckpt,
+            )
+            print(f"  ✓ New best val_f1={best_val_f1:.3f}")
+        print()
+    return best_val_f1
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fine-tune BiGRU encoder for chewing detection.")
-    parser.add_argument(
-        "--checkpoint",
-        type=Path,
-        default=Path("checkpoints/pretrain/bigru_personal_best.pt"),
-        help="Pretrained BiGRU checkpoint (current or legacy pretext format, auto-detected)",
+    parser = argparse.ArgumentParser(
+        description="Fine-tune a per-timestep chewing detector on a masked-reconstruction checkpoint."
     )
-    parser.add_argument("--variant", choices=["personal", "global"], default="personal")
-    parser.add_argument("--dataset", default="SIPMEatingStudy")
     parser.add_argument(
-        "--processed-root", type=Path, default=Path("src/chewing_ssl/data/data/processed")
+        "--checkpoint", type=Path, required=True, help="From pretrain.py (architecture auto-detected)."
     )
+    parser.add_argument(
+        "--dataset", default=None, help="Restrict to one dataset. Default: all datasets."
+    )
+    parser.add_argument("--processed-root", type=Path, default=Path("data/processed"))
     parser.add_argument("--out-dir", type=Path, default=Path("checkpoints/finetune"))
+    parser.add_argument("--head-hidden-dim", type=int, default=64)
+    parser.add_argument("--head-dropout", type=float, default=0.3)
+    parser.add_argument("--phase1-epochs", type=int, default=10, help="Encoder frozen, head-only.")
     parser.add_argument(
-        "--phase1-epochs",
-        type=int,
-        default=5,
-        help="Epochs with encoder frozen (head-only training)",
+        "--phase2-epochs", type=int, default=15, help="Only the encoder's last block unfrozen."
     )
-    parser.add_argument(
-        "--phase2-epochs",
-        type=int,
-        default=10,
-        help="Epochs with encoder unfrozen (full fine-tuning)",
-    )
+    parser.add_argument("--phase3-epochs", type=int, default=20, help="Entire encoder unfrozen.")
     parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--head-lr", type=float, default=1e-3)
     parser.add_argument(
-        "--head-lr", type=float, default=1e-3, help="Learning rate for the classification head"
+        "--last-block-lr", type=float, default=1e-4, help="Phase 2 encoder LR (10x below head-lr)."
     )
     parser.add_argument(
-        "--encoder-lr",
-        type=float,
-        default=1e-4,
-        help="Learning rate for the encoder in phase 2 (10x lower by default)",
+        "--full-lr", type=float, default=3e-5, help="Phase 3 encoder LR (below last-block-lr)."
     )
+    parser.add_argument("--lr-schedule", choices=["none", "cosine"], default="cosine")
+    parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--max-train-windows", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default=None)
@@ -312,43 +336,36 @@ def main() -> None:
     set_seed(args.seed)
     device = pick_device(args.device)
 
-    print(f"\n{'=' * 60}")
-    print("  Fine-tuning BiGRU for chewing detection")
-    print(f"  Checkpoint   : {args.checkpoint}")
-    print(f"  Dataset      : {args.dataset}")
-    print(f"  Device       : {device}")
-    print(f"  Phase 1      : {args.phase1_epochs} epochs  (encoder frozen, head LR={args.head_lr})")
-    print(
-        f"  Phase 2      : {args.phase2_epochs} epochs  (encoder LR={args.encoder_lr}, head LR={args.head_lr})"
+    encoder, meta = load_pretrained_encoder(args.checkpoint)
+    run_name = f"{meta['pretext_task']}_{meta['architecture']}_w{meta['window_len']}"
+    model = ChewingDetector(
+        encoder, meta["architecture"], meta["embedding_dim"], args.head_hidden_dim, args.head_dropout
     )
-    print(f"{'=' * 60}\n")
-
-    # ── Load pretrained encoder ──
-    print("  Loading pretrained BiGRU encoder ...")
-    bigru = load_bigru_from_checkpoint(args.checkpoint)
-    model = ChewingDetector()
-    model.copy_encoder_weights(bigru.encoder)
     model.freeze_encoder()
     model.to(device)
     n_params = sum(p.numel() for p in model.parameters())
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"  Total params : {n_params:,}  |  Trainable (phase 1): {n_trainable:,}\n")
 
-    # ── Data ──
+    print(f"\n{'=' * 60}")
+    print(f"  Fine-tuning chewing detector  [{run_name}]")
+    print(f"  Checkpoint    : {args.checkpoint}")
+    print(f"  Architecture  : {meta['architecture']}  |  Pretext task: {meta['pretext_task']}  |  "
+          f"Window: {meta['window_len']} samples")
+    print(f"  Dataset       : {args.dataset or 'all'}")
+    print(f"  Device        : {device}")
+    print(f"  Total params  : {n_params:,}  |  Trainable (phase 1): {n_trainable:,}")
+    print(
+        f"  Phase 1: {args.phase1_epochs} epochs (frozen)  |  "
+        f"Phase 2: {args.phase2_epochs} epochs (last block, lr={args.last_block_lr})  |  "
+        f"Phase 3: {args.phase3_epochs} epochs (full, lr={args.full_lr})"
+    )
+    print(f"{'=' * 60}\n")
+
     train_index = load_index(
-        args.processed_root,
-        args.variant,
-        "finetune_train",
-        args.max_train_windows,
-        args.seed,
-        args.dataset,
+        args.processed_root, "finetune_train", args.max_train_windows, args.seed, args.dataset
     )
-    val_index = load_index(
-        args.processed_root, args.variant, "finetune_val", None, args.seed, args.dataset
-    )
-    test_index = load_index(
-        args.processed_root, args.variant, "finetune_test", None, args.seed, args.dataset
-    )
+    val_index = load_index(args.processed_root, "finetune_val", None, args.seed, args.dataset)
+    test_index = load_index(args.processed_root, "finetune_test", None, args.seed, args.dataset)
 
     print(
         f"  Train : {len(train_index):>5,} windows | {train_index['participant'].nunique()} participants"
@@ -360,53 +377,55 @@ def main() -> None:
         f"  Test  : {len(test_index):>5,} windows | {test_index['participant'].nunique()} participants"
     )
 
-    # Estimate chewing fraction from training index (no parquet load needed).
-    # Used to compute pos_weight for class-balanced BCE.
-    # Approximate: load a random sample of 10 segments to estimate.
     sample_segs = train_index["segment_path"].unique()[:10]
-    chew_vals = []
-    for sp in sample_segs:
-        df = pd.read_parquet(sp, columns=["label"])
-        chew_vals.append(df["label"].mean())
+    chew_vals = [pd.read_parquet(sp, columns=["label"])["label"].mean() for sp in sample_segs]
     chew_frac = float(np.mean(chew_vals))
     pos_weight = torch.tensor([(1.0 - chew_frac) / max(chew_frac, 1e-6)])
     print(f"\n  Chewing fraction (train sample): {chew_frac:.1%}")
     print(f"  pos_weight for BCE             : {pos_weight.item():.2f}\n")
 
     val_loader = DataLoader(
-        WindowDataset(
-            val_index.sort_values("segment_path").reset_index(drop=True), with_label=True
-        ),
+        WindowDataset(val_index.sort_values("segment_path").reset_index(drop=True), with_label=True),
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=0,
     )
     test_loader = DataLoader(
-        WindowDataset(
-            test_index.sort_values("segment_path").reset_index(drop=True), with_label=True
-        ),
+        WindowDataset(test_index.sort_values("segment_path").reset_index(drop=True), with_label=True),
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=0,
     )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    best_val_f1 = 0.0
+    best_val_f1 = -1.0  # not 0.0 -- an all-zero-F1 epoch must still save a checkpoint
     history: list[dict] = []
+    best_ckpt = args.out_dir / f"{run_name}_best.pt"
+    # Stamped into every saved checkpoint so evaluate_bouts.py / plot_predictions.py
+    # can reconstruct the model without needing the original pretrain checkpoint again.
+    extra_meta = {
+        "architecture": meta["architecture"],
+        "pretext_task": meta["pretext_task"],
+        "window_len": meta["window_len"],
+        "embedding_dim": meta["embedding_dim"],
+        "model_kwargs": meta["model_kwargs"],
+        "head_hidden_dim": args.head_hidden_dim,
+        "head_dropout": args.head_dropout,
+    }
 
-    ckpt_name = f"{args.checkpoint.stem.replace('best', 'finetune')}"
-    best_ckpt = args.out_dir / f"{ckpt_name}_best.pt"
-
-    with start_run(run_name=f"finetune_{ckpt_name}"):
+    with start_run(run_name=f"finetune_{run_name}"):
         log_params(
             {
                 "pretrained_from": str(args.checkpoint),
-                "dataset": args.dataset,
-                "variant": args.variant,
+                "architecture": meta["architecture"],
+                "pretext_task": meta["pretext_task"],
+                "window_len": meta["window_len"],
+                "dataset": args.dataset or "all",
                 "phase1_epochs": args.phase1_epochs,
                 "phase2_epochs": args.phase2_epochs,
+                "phase3_epochs": args.phase3_epochs,
                 "head_lr": args.head_lr,
-                "encoder_lr": args.encoder_lr,
+                "last_block_lr": args.last_block_lr,
+                "full_lr": args.full_lr,
+                "lr_schedule": args.lr_schedule,
                 "batch_size": args.batch_size,
                 "n_train_windows": len(train_index),
                 "n_val_windows": len(val_index),
@@ -415,124 +434,51 @@ def main() -> None:
             }
         )
 
-        # ── Phase 1: encoder frozen ──────────────────────────────────────────
+        # ── Phase 1: encoder frozen, head-only ──
         if args.phase1_epochs > 0:
-            print(f"{'─' * 60}")
-            print(f"  Phase 1: {args.phase1_epochs} epochs  (encoder FROZEN)")
-            print(f"{'─' * 60}")
-            optimizer = torch.optim.AdamW(
-                filter(lambda p: p.requires_grad, model.parameters()), lr=args.head_lr
+            print(f"{'─' * 60}\n  Phase 1: encoder FROZEN\n{'─' * 60}")
+            optimizer = torch.optim.AdamW(model.head.parameters(), lr=args.head_lr)
+            best_val_f1 = run_phase(
+                1, args.phase1_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
+                device, args.batch_size, pos_weight, args.seed, 0, best_ckpt, best_val_f1, history, extra_meta,
             )
-            for epoch in range(args.phase1_epochs):
-                t0 = time.time()
-                lbl = f"P1 epoch {epoch + 1}/{args.phase1_epochs}"
-                print(f"  {lbl}")
-                shuffled = shuffle_by_segment(train_index, args.seed + epoch)
-                train_loader = DataLoader(
-                    WindowDataset(shuffled, with_label=True),
-                    batch_size=args.batch_size,
-                    shuffle=False,
-                    num_workers=0,
-                )
-                train_m = run_epoch(model, train_loader, device, optimizer, pos_weight, lbl)
-                val_m = run_epoch(model, val_loader, device, None, pos_weight, lbl)
-                dt = time.time() - t0
 
-                log_metrics({f"p1_train_{k}": v for k, v in train_m.items()}, step=epoch)
-                log_metrics({f"p1_val_{k}": v for k, v in val_m.items()}, step=epoch)
-                print_metrics(train_m, prefix="  train  ")
-                print_metrics(val_m, prefix="  val    ")
-                print(f"  ({dt:.1f}s)")
-
-                row = {
-                    "phase": 1,
-                    "epoch": epoch,
-                    **{f"train_{k}": v for k, v in train_m.items()},
-                    **{f"val_{k}": v for k, v in val_m.items()},
-                }
-                history.append(row)
-
-                if val_m["f1"] > best_val_f1:
-                    best_val_f1 = val_m["f1"]
-                    torch.save(
-                        {
-                            "model_state_dict": model.state_dict(),
-                            "phase": 1,
-                            "epoch": epoch,
-                            "val_f1": best_val_f1,
-                            "val_metrics": val_m,
-                        },
-                        best_ckpt,
-                    )
-                    print(f"  ✓ New best val_f1={best_val_f1:.3f}")
-                print()
-
-        # ── Phase 2: encoder unfrozen ────────────────────────────────────────
+        # ── Phase 2: only the last encoder block unfrozen ──
         if args.phase2_epochs > 0:
-            model.unfreeze_encoder()
+            model.unfreeze_last_encoder_block()
             n_trainable2 = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            print(f"{'─' * 60}")
-            print(f"  Phase 2: {args.phase2_epochs} epochs  (encoder UNFROZEN)")
-            print(f"  Trainable params now: {n_trainable2:,}")
-            print(f"{'─' * 60}")
+            print(f"{'─' * 60}\n  Phase 2: last encoder block UNFROZEN  ({n_trainable2:,} trainable)\n{'─' * 60}")
             optimizer = torch.optim.AdamW(
                 [
-                    {"params": model.gru.parameters(), "lr": args.encoder_lr, "name": "encoder"},
-                    {
-                        "params": list(model.dropout.parameters()) + list(model.head.parameters()),
-                        "lr": args.head_lr,
-                        "name": "head",
-                    },
+                    {"params": model.last_encoder_block_parameters(), "lr": args.last_block_lr},
+                    {"params": model.head.parameters(), "lr": args.head_lr},
                 ]
             )
-            for epoch in range(args.phase2_epochs):
-                t0 = time.time()
-                lbl = f"P2 epoch {epoch + 1}/{args.phase2_epochs}"
-                print(f"  {lbl}")
-                shuffled = shuffle_by_segment(train_index, args.seed + 1000 + epoch)
-                train_loader = DataLoader(
-                    WindowDataset(shuffled, with_label=True),
-                    batch_size=args.batch_size,
-                    shuffle=False,
-                    num_workers=0,
-                )
-                train_m = run_epoch(model, train_loader, device, optimizer, pos_weight, lbl)
-                val_m = run_epoch(model, val_loader, device, None, pos_weight, lbl)
-                dt = time.time() - t0
+            best_val_f1 = run_phase(
+                2, args.phase2_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
+                device, args.batch_size, pos_weight, args.seed, 1000, best_ckpt, best_val_f1, history, extra_meta,
+            )
 
-                log_metrics({f"p2_train_{k}": v for k, v in train_m.items()}, step=epoch)
-                log_metrics({f"p2_val_{k}": v for k, v in val_m.items()}, step=epoch)
-                print_metrics(train_m, prefix="  train  ")
-                print_metrics(val_m, prefix="  val    ")
-                print(f"  ({dt:.1f}s)")
+        # ── Phase 3: entire encoder unfrozen ──
+        if args.phase3_epochs > 0:
+            model.unfreeze_encoder()
+            n_trainable3 = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            print(f"{'─' * 60}\n  Phase 3: FULL encoder UNFROZEN  ({n_trainable3:,} trainable)\n{'─' * 60}")
+            optimizer = torch.optim.AdamW(
+                [
+                    {"params": model.encoder.parameters(), "lr": args.full_lr},
+                    {"params": model.head.parameters(), "lr": args.head_lr},
+                ]
+            )
+            best_val_f1 = run_phase(
+                3, args.phase3_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
+                device, args.batch_size, pos_weight, args.seed, 2000, best_ckpt, best_val_f1, history, extra_meta,
+            )
 
-                row = {
-                    "phase": 2,
-                    "epoch": epoch,
-                    **{f"train_{k}": v for k, v in train_m.items()},
-                    **{f"val_{k}": v for k, v in val_m.items()},
-                }
-                history.append(row)
-
-                if val_m["f1"] > best_val_f1:
-                    best_val_f1 = val_m["f1"]
-                    torch.save(
-                        {
-                            "model_state_dict": model.state_dict(),
-                            "phase": 2,
-                            "epoch": epoch,
-                            "val_f1": best_val_f1,
-                            "val_metrics": val_m,
-                        },
-                        best_ckpt,
-                    )
-                    print(f"  ✓ New best val_f1={best_val_f1:.3f}")
-                print()
-
-        # ── Final test evaluation ────────────────────────────────────────────
+        # ── Final test evaluation ──
         print(f"{'─' * 60}")
         print("  Loading best checkpoint for test evaluation ...")
-        best_state = torch.load(best_ckpt, map_location="cpu", weights_only=True)
+        best_state = torch.load(best_ckpt, map_location="cpu", weights_only=False)
         model.load_state_dict(best_state["model_state_dict"])
         print(
             f"  Best model: phase={best_state['phase']}  epoch={best_state['epoch'] + 1}  "
@@ -544,13 +490,20 @@ def main() -> None:
         print_metrics(test_m, prefix="  ")
         log_metrics({f"test_{k}": v for k, v in test_m.items()})
 
-        # Save history + test metrics
-        result = {"history": history, "test_metrics": test_m, "best_val_f1": best_val_f1}
-        hist_path = args.out_dir / f"{ckpt_name}_history.json"
+        result = {
+            "run_name": run_name,
+            "architecture": meta["architecture"],
+            "pretext_task": meta["pretext_task"],
+            "window_len": meta["window_len"],
+            "history": history,
+            "test_metrics": test_m,
+            "best_val_f1": best_val_f1,
+        }
+        hist_path = args.out_dir / f"{run_name}_history.json"
         hist_path.write_text(json.dumps(result, indent=2))
 
     print(f"\n{'=' * 60}")
-    print(f"  Done.  Best val_f1={best_val_f1:.3f}  Test F1={test_m['f1']:.3f}")
+    print(f"  Done.  [{run_name}]  Best val_f1={best_val_f1:.3f}  Test F1={test_m['f1']:.3f}")
     print(f"  Checkpoint  →  {best_ckpt}")
     print(f"  History     →  {hist_path}")
     print(f"{'=' * 60}\n")

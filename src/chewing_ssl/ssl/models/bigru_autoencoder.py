@@ -14,10 +14,6 @@ import torch
 import torch.nn as nn
 
 
-# 03/07/2026
-# Think of a way to improve this architecture
-
-
 class BiGRUAutoencoder(nn.Module):
     """Input/output: (B, n_channels, T)."""
 
@@ -26,6 +22,7 @@ class BiGRUAutoencoder(nn.Module):
     ):
         super().__init__()
         self.embedding_dim = hidden_size * 2
+        self.num_layers = num_layers
         self.mask_token = nn.Parameter(torch.zeros(n_channels))
         self.encoder = nn.GRU(
             input_size=n_channels,
@@ -46,3 +43,18 @@ class BiGRUAutoencoder(nn.Module):
         h = self.encode(x)  # (B, T, 2*hidden)
         recon = self.head(h)  # (B, T, n_channels)
         return recon.transpose(1, 2)  # (B, n_channels, T)
+
+    def layer_parameters(self, layer_idx: int) -> list[nn.Parameter]:
+        """Parameters belonging to one GRU layer (0 = closest to the input,
+        num_layers-1 = closest to the output), for gradual unfreezing during
+        fine-tuning -- nn.GRU names its per-layer weights/biases with an
+        '_l{layer_idx}' suffix (and a further '_reverse' suffix for the
+        backward direction, since this GRU is bidirectional; both directions
+        of a layer are unfrozen together, since they're the same conceptual
+        depth)."""
+        suffix = f"_l{layer_idx}"
+        return [
+            p
+            for name, p in self.encoder.named_parameters()
+            if name.rsplit("_reverse", 1)[0].endswith(suffix)
+        ]

@@ -64,18 +64,38 @@ PRETRAIN_VAL_FRACTION: float = _CFG["splits"]["pretrain_val_fraction"]
 TARGET_HZ: float = _CFG["resample"]["target_hz"]
 WINDOW_SECONDS: float = _CFG["window"]["window_seconds"]
 WINDOW_LEN: int = int(WINDOW_SECONDS * TARGET_HZ)
-TRAIN_STRIDE: int = max(int(WINDOW_LEN * (1 - _CFG["window"]["train_overlap"])), 1)
+TRAIN_OVERLAP: float = _CFG["window"]["train_overlap"]
+TRAIN_STRIDE: int = max(int(WINDOW_LEN * (1 - TRAIN_OVERLAP)), 1)
 EVAL_STRIDE: int = WINDOW_LEN  # no overlap
 
-# purpose -> stride. "train"-flavoured purposes get overlap, eval ones don't.
-PURPOSE_STRIDE = {
-    "pretrain_train": TRAIN_STRIDE,
-    "pretrain_val": EVAL_STRIDE,
-    "finetune_train": TRAIN_STRIDE,
-    "finetune_val": EVAL_STRIDE,
-    "finetune_test": EVAL_STRIDE,
-    "meal_test": EVAL_STRIDE,
-}
+
+def purpose_stride_for(window_len: int, train_overlap: float = TRAIN_OVERLAP) -> dict[str, int]:
+    """purpose -> stride, for a given window length. "train"-flavoured purposes
+    get `train_overlap` overlap; eval ones never overlap (stride == window_len).
+
+    Computed from the ACTUAL window_len in use, not the config/module-level
+    default -- calling this instead of hardcoding the module-level
+    PURPOSE_STRIDE is required whenever window_len can differ from
+    configs/preprocessing.yaml's default (e.g. --window-seconds), since a
+    fixed train/eval stride computed once at import time would silently
+    produce a wrong (over- or under-lapping) index at any other window size.
+    """
+    train_stride = max(int(window_len * (1 - train_overlap)), 1)
+    eval_stride = window_len
+    return {
+        "pretrain_train": train_stride,
+        "pretrain_val": eval_stride,
+        "finetune_train": train_stride,
+        "finetune_val": eval_stride,
+        "finetune_test": eval_stride,
+        "meal_test": eval_stride,
+    }
+
+
+# purpose -> stride, at the config's default window length. Only valid at
+# WINDOW_LEN itself -- build_window_index recomputes this from the actual
+# window_len in use when purpose_stride isn't passed explicitly.
+PURPOSE_STRIDE = purpose_stride_for(WINDOW_LEN)
 # purposes that require a per-timestep label to exist in the segment.
 LABELLED_PURPOSES = {"finetune_train", "finetune_val", "finetune_test", "meal_test"}
 
@@ -199,7 +219,10 @@ def build_window_index(
     purpose_stride: dict[str, int] | None = None,
 ) -> pd.DataFrame:
     """One row per window: which segment it comes from, its sample range, and purpose."""
-    purpose_stride = purpose_stride or PURPOSE_STRIDE
+    # Recompute from window_len when the caller doesn't pass an explicit
+    # override -- PURPOSE_STRIDE alone is only correct at the config's
+    # default window_len (see purpose_stride_for's docstring).
+    purpose_stride = purpose_stride or purpose_stride_for(window_len)
     rows = []
     for dataset in datasets:
         for tag in list_tags(interim_root, dataset):
@@ -243,6 +266,7 @@ def run(
     seed: int = DEFAULT_SEED,
     splits_only: bool = False,
     window_len: int = WINDOW_LEN,
+    train_overlap: float = TRAIN_OVERLAP,
 ) -> None:
     splits_path = out_root / "splits.json"
     pretrain_val_holdout = None
@@ -270,7 +294,14 @@ def run(
         )
         return
 
-    index = build_window_index(interim_root, splits, pretrain_val_holdout, datasets, window_len)
+    index = build_window_index(
+        interim_root,
+        splits,
+        pretrain_val_holdout,
+        datasets,
+        window_len,
+        purpose_stride_for(window_len, train_overlap),
+    )
     index_dir = out_root / "index"
     index_dir.mkdir(parents=True, exist_ok=True)
     for purpose, sub in index.groupby("purpose"):
@@ -303,10 +334,19 @@ def main() -> None:
     parser.add_argument(
         "--window-seconds", type=float, default=None, help="Override configs/preprocessing.yaml."
     )
+    parser.add_argument(
+        "--train-overlap",
+        type=float,
+        default=None,
+        help="Override configs/preprocessing.yaml's window.train_overlap for "
+        "train-purpose windows (pretrain_train, finetune_train). Eval-purpose "
+        "windows never overlap regardless of this value.",
+    )
     args = parser.parse_args()
 
     window_len = int(args.window_seconds * TARGET_HZ) if args.window_seconds else WINDOW_LEN
-    run(args.interim_root, args.out, DATASETS, args.seed, args.splits_only, window_len)
+    train_overlap = args.train_overlap if args.train_overlap is not None else TRAIN_OVERLAP
+    run(args.interim_root, args.out, DATASETS, args.seed, args.splits_only, window_len, train_overlap)
 
 
 class WindowDataset:

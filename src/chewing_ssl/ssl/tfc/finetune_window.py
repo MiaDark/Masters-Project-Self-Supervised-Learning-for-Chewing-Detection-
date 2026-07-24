@@ -237,16 +237,27 @@ def main() -> None:
         args.processed_root, "finetune_train", args.max_train_windows, args.seed, args.dataset
     )
     val_index = load_index(args.processed_root, "finetune_val", None, args.seed, args.dataset)
+    test_index = load_index(args.processed_root, "finetune_test", None, args.seed, args.dataset)
     print(
         f"  Train : {len(train_index):>7,} windows  |  {train_index['participant'].nunique()} participants"
     )
     print(
-        f"  Val   : {len(val_index):>7,} windows  |  {val_index['participant'].nunique()} participants\n"
+        f"  Val   : {len(val_index):>7,} windows  |  {val_index['participant'].nunique()} participants"
+    )
+    print(
+        f"  Test  : {len(test_index):>7,} windows  |  {test_index['participant'].nunique()} participants\n"
     )
 
     val_loader = DataLoader(
         WindowDataset(
             val_index.sort_values("segment_path").reset_index(drop=True), with_label=True
+        ),
+        batch_size=args.batch_size,
+        shuffle=False,
+    )
+    test_loader = DataLoader(
+        WindowDataset(
+            test_index.sort_values("segment_path").reset_index(drop=True), with_label=True
         ),
         batch_size=args.batch_size,
         shuffle=False,
@@ -320,10 +331,26 @@ def main() -> None:
             )
             print(f"  ✓ New best val_f1={best_val_f1:.4f}  →  {ckpt_path}\n")
 
+    # ── Final held-out test evaluation ───────────────────────────────────────
+    # Reload the best-val_f1 checkpoint (not necessarily the last epoch's
+    # weights) so the reported test number matches what was actually
+    # selected, exactly like masked/finetune.py's convention.
+    print(f"{'─' * 60}")
+    print("  Loading best checkpoint for test evaluation ...")
+    best_state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    model.load_state_dict(best_state["model_state_dict"])
+    print(f"  Best model: epoch={best_state['epoch'] + 1}  val_f1={best_state['val_f1']:.4f}\n")
+
+    test_m = run_epoch(model, test_loader, device, None, pos_weight, "test")
+    print("  TEST SET RESULTS:")
+    print_metrics(test_m, prefix="  ")
+
     history_path = args.out_dir / f"{encoder.pretext_task}_history.json"
-    history_path.write_text(json.dumps(history, indent=2))
+    history_path.write_text(
+        json.dumps({"history": history, "test_metrics": test_m, "best_val_f1": best_val_f1}, indent=2)
+    )
     print(f"{'=' * 60}")
-    print(f"  Done.  Best val_f1={best_val_f1:.4f}")
+    print(f"  Done.  Best val_f1={best_val_f1:.4f}  Test F1={test_m['f1']:.4f}")
     print(f"  Checkpoint + history  →  {args.out_dir}")
     print(f"{'=' * 60}\n")
 
