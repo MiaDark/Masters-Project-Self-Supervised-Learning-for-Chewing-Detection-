@@ -1,0 +1,145 @@
+# Hyperparameter sweep for `chewing_ssl.classical_ml.train --sweep-config`.
+
+# random_forest levers:
+#   n_estimators      more trees -> lower variance, diminishing returns, slower
+#   max_depth          null (unlimited) vs capped -> controls overfitting
+#   min_samples_leaf   larger -> more regularized, smoother decision boundary
+#   max_features        fraction/rule considered per split -> tree diversity
+#   class_weight        balanced vs balanced_subsample -> positive class is
+#                       only ~25-29% of windows (docs/classical_ml.md §1)
+#
+# logistic_regression levers:
+#   C                   inverse regularization strength, swept 0.01-100
+#   l1_ratio            0.0=L2, 1.0=L1, 0.5=elasticnet (sklearn >=1.8's
+#                       `penalty` replacement -- see LogisticRegression docs)
+#   solver              lbfgs (L2 only, fast) vs saga (supports L1/elasticnet,
+#                       much slower on 850 dense features) vs liblinear
+#   class_weight        balanced vs None, to measure its effect in isolation
+#   max_iter            1000 for lbfgs (converges ~350 iters on this data),
+#                       500 for saga (slower per-iteration; may not fully
+#                       converge for every C -- that's a legitimate sweep
+#                       finding, not a bug)
+
+random_forest:
+  - name: rf_01_baseline_100
+    n_estimators: 100
+    max_depth: null
+    min_samples_leaf: 1
+    max_features: sqrt
+    class_weight: balanced
+  - name: rf_02_baseline_300
+    n_estimators: 300
+    max_depth: null
+    min_samples_leaf: 1
+    max_features: sqrt
+    class_weight: balanced
+  - name: rf_03_many_trees_500
+    n_estimators: 500
+    max_depth: null
+    min_samples_leaf: 1
+    max_features: sqrt
+    class_weight: balanced
+  - name: rf_04_shallow_depth10
+    n_estimators: 300
+    max_depth: 10
+    min_samples_leaf: 1
+    max_features: sqrt
+    class_weight: balanced
+  - name: rf_05_medium_depth20
+    n_estimators: 300
+    max_depth: 20
+    min_samples_leaf: 1
+    max_features: sqrt
+    class_weight: balanced
+  - name: rf_06_regularized_leaf5
+    n_estimators: 300
+    max_depth: null
+    min_samples_leaf: 5
+    max_features: sqrt
+    class_weight: balanced
+  - name: rf_07_regularized_leaf10
+    n_estimators: 300
+    max_depth: null
+    min_samples_leaf: 10
+    max_features: sqrt
+    class_weight: balanced
+  - name: rf_08_features_log2
+    n_estimators: 300
+    max_depth: null
+    min_samples_leaf: 1
+    max_features: log2
+    class_weight: balanced
+  - name: rf_09_features_frac03
+    n_estimators: 300
+    max_depth: null
+    min_samples_leaf: 1
+    max_features: 0.3
+    class_weight: balanced
+  - name: rf_10_deep_forest_balanced_subsample
+    n_estimators: 500
+    max_depth: 20
+    min_samples_leaf: 2
+    max_features: sqrt
+    class_weight: balanced_subsample
+
+logistic_regression:
+  - name: lr_01_C0.01_l2
+    C: 0.01
+    l1_ratio: 0.0
+    solver: lbfgs
+    class_weight: balanced
+    max_iter: 1000
+  - name: lr_02_C0.1_l2
+    C: 0.1
+    l1_ratio: 0.0
+    solver: lbfgs
+    class_weight: balanced
+    max_iter: 1000
+  - name: lr_03_C1_l2
+    C: 1.0
+    l1_ratio: 0.0
+    solver: lbfgs
+    class_weight: balanced
+    max_iter: 1000
+  - name: lr_04_C10_l2
+    C: 10.0
+    l1_ratio: 0.0
+    solver: lbfgs
+    class_weight: balanced
+    max_iter: 1000
+  - name: lr_05_C100_l2
+    C: 100.0
+    l1_ratio: 0.0
+    solver: lbfgs
+    class_weight: balanced
+    max_iter: 1000
+  - name: lr_06_C1_l1
+    C: 1.0
+    l1_ratio: 1.0
+    solver: saga
+    class_weight: balanced
+    max_iter: 500
+  - name: lr_07_C0.1_l1
+    C: 0.1
+    l1_ratio: 1.0
+    solver: saga
+    class_weight: balanced
+    max_iter: 500
+  - name: lr_08_C1_elasticnet
+    C: 1.0
+    l1_ratio: 0.5
+    solver: saga
+    class_weight: balanced
+    max_iter: 500
+  - name: lr_09_C1_l2_noclassweight
+    C: 1.0
+    l1_ratio: 0.0
+    solver: lbfgs
+    class_weight: null
+    max_iter: 1000
+  - name: lr_10_C10_liblinear
+    C: 10.0
+    l1_ratio: 0.0
+    solver: liblinear
+    class_weight: balanced
+    max_iter: 1000

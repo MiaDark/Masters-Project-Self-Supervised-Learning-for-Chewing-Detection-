@@ -1,12 +1,18 @@
 """Plot navigation signal + chewing labels for one recording: ground truth
-on top, the classical-ML model's upscaled predictions (upscale_predictions.py)
-directly below on the same axes, so the two are visually comparable.
+on top, the classical-ML model's predictions directly below on the same
+axes, so the two are visually comparable.
 
-Bout matching (extract_bouts/match_bouts, from common.evaluation.bouts) is
-the same IoU-based logic evaluate_bouts.py uses for its aggregate/per-bout
-numbers -- this plot is that same verdict rendered visually, rather than a
-single flat "chewing" color you have to eyeball against the top panel
-yourself.
+By default the bottom panel shows POSTPROCESSED predictions (hysteresis ->
+gap-fill -> bout splitting -> duration bounds, chewing_ssl.common.evaluation.
+postprocess, plus a raw-signal envelope split -- see evaluate_bouts.py's
+module docstring and docs/classical_ml.md §6b for why both splitting
+mechanisms exist) with onset/offset-tolerance bout matching (chewing_ssl.
+common.evaluation.bouts.match_bouts_tolerant) -- the same defaults as
+evaluate_bouts.py, so this plot is that script's verdict rendered visually
+rather than a flat "chewing" color you have to eyeball against the top
+panel yourself. Pass --raw to instead plot the raw thresholded prediction
+(upscale_predictions.py's pred_label) with strict IoU matching, for
+comparison against the old behavior.
 """
 
 from __future__ import annotations
@@ -19,11 +25,19 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
-from chewing_ssl.common.evaluation.bouts import extract_bouts, match_bouts
+from chewing_ssl.common.evaluation.bouts import extract_bouts, match_bouts, match_bouts_tolerant
+from chewing_ssl.common.evaluation.postprocess import (
+    compute_envelope,
+    postprocess,
+    remove_short_bouts,
+    split_bouts_by_envelope,
+)
 
 FS = 50.0
+ENVELOPE_CHANNELS = ["nav_x_left_temple", "nav_y_left_temple"]
 PALETTE = {
     "nav_x": "#1565C0",
     "nav_y": "#6A1B9A",
@@ -83,8 +97,22 @@ def plot_predictions(
     interim_root: Path,
     row: pd.Series,
     out_path: Path,
-    iou_thresh: float = 0.3,
     min_bout_dur: float = 0.5,
+    raw: bool = False,
+    threshold: float = 0.5,
+    post_high: float = 0.75,
+    post_low: float = 0.52,
+    post_max_gap: float = 1.0,
+    post_min_dur: float = 2.0,
+    post_max_dur: float = 35.0,
+    post_valley: float | None = 0.35,
+    envelope_split: bool = True,
+    envelope_window_s: float = 1.5,
+    envelope_min_piece_dur: float = 8.0,
+    envelope_prominence: float = 2.5,
+    match_mode: str = "tolerance",
+    tolerance_s: float = 5.0,
+    iou_thresh: float = 0.3,
 ) -> None:
     dataset, participant, tag, segment = (
         row["dataset"],
@@ -96,23 +124,53 @@ def plot_predictions(
     if not seg_path.exists():
         raise FileNotFoundError(f"No interim segment at {seg_path}")
 
-    signal = pd.read_parquet(
-        seg_path, columns=["datetime", "nav_x_left_temple", "nav_y_left_temple", "label"]
-    )
+    signal = pd.read_parquet(seg_path, columns=["datetime", *ENVELOPE_CHANNELS, "label"])
     signal["row_idx"] = range(len(signal))
 
     preds = pd.read_parquet(row["out_path"])
 
     merged = signal.merge(preds, on="row_idx", how="left")
-    n_unpredicted = merged["pred_label"].isna().sum()
+    n_unpredicted = merged["pred_prob"].isna().sum()
 
-    # Bout-level match, same logic evaluate_ml_bouts.py uses -- this plot is
-    # that verdict rendered visually instead of a flat "chewing" shade.
     gt_binary = merged["label"].fillna(0).to_numpy(dtype=bool)
-    pred_binary = merged["pred_label"].fillna(0).to_numpy(dtype=bool)
+    if raw:
+        pred_binary = np.nan_to_num(merged["pred_prob"].to_numpy(), nan=0.0) >= threshold
+        match_label = f"raw >= {threshold}, IoU >= {iou_thresh}"
+    else:
+        pred_binary = postprocess(
+            merged["pred_prob"].to_numpy(),
+            high=post_high,
+            low=post_low,
+            max_gap_s=post_max_gap,
+            min_dur_s=post_min_dur,
+            max_dur_s=post_max_dur,
+            valley_thresh=post_valley,
+        )
+        if envelope_split:
+            signal_mag = np.sqrt(
+                (merged[ENVELOPE_CHANNELS].to_numpy(dtype=np.float64) ** 2).sum(axis=1)
+            )
+            envelope = compute_envelope(signal_mag, fs=FS, window_s=envelope_window_s)
+            pred_binary = split_bouts_by_envelope(
+                pred_binary,
+                envelope,
+                fs=FS,
+                min_piece_dur_s=envelope_min_piece_dur,
+                prominence_frac=envelope_prominence,
+            )
+            pred_binary = remove_short_bouts(pred_binary, fs=FS, min_dur_s=post_min_dur)
+        match_label = (
+            f"tolerance={tolerance_s}s" if match_mode == "tolerance" else f"IoU >= {iou_thresh}"
+        )
+
+    # Bout-level match, same logic evaluate_bouts.py uses -- this plot is
+    # that verdict rendered visually instead of a flat "chewing" shade.
     gt_bouts = extract_bouts(gt_binary, fs=FS, min_dur=min_bout_dur)
     pred_bouts = extract_bouts(pred_binary, fs=FS, min_dur=min_bout_dur)
-    result = match_bouts(gt_bouts, pred_bouts, iou_thresh=iou_thresh)
+    if not raw and match_mode == "tolerance":
+        result = match_bouts_tolerant(gt_bouts, pred_bouts, tolerance_s=tolerance_s)
+    else:
+        result = match_bouts(gt_bouts, pred_bouts, iou_thresh=iou_thresh)
     matched_gt_ids = {id(m["gt"]) for m in result["matches"]}
     matched_pred_ids = {id(m["pred"]) for m in result["matches"]}
     n_detected = len(matched_gt_ids)
@@ -123,7 +181,7 @@ def plot_predictions(
         f"Navigation signal vs. chewing labels -- {dataset} / {participant} / {tag} / {segment}\n"
         f"({len(merged):,} rows, {n_unpredicted:,} not covered)   "
         f"bouts: {n_detected}/{len(gt_bouts)} GT detected, {n_false_alarm} false alarms  "
-        f"(IoU >= {iou_thresh}, min bout {min_bout_dur}s)",
+        f"({match_label}, min bout {min_bout_dur}s)",
         fontsize=11,
     )
 
@@ -134,7 +192,7 @@ def plot_predictions(
             pred_bouts,
             matched_pred_ids,
             {True: "detected", False: "false_alarm"},
-            "Model prediction",
+            "Model prediction (raw)" if raw else "Model prediction (postprocessed)",
         ),
     ]
     for ax, bouts, matched_ids, status_of, title in panels:
@@ -208,18 +266,81 @@ def main() -> None:
         "<dataset>_<participant>_<tag>_<segment>.png.",
     )
     parser.add_argument(
-        "--iou-thresh",
-        type=float,
-        default=0.3,
-        help="Bout-match threshold, same default as evaluate_ml_bouts.py.",
+        "--min-bout-dur", type=float, default=0.5, help="Minimum bout duration (s)."
     )
     parser.add_argument(
-        "--min-bout-dur",
-        type=float,
-        default=0.5,
-        help="Minimum bout duration (s), same default as evaluate_ml_bouts.py.",
+        "--raw",
+        action="store_true",
+        help="Plot the raw thresholded prediction with strict IoU matching, instead of "
+        "postprocessed predictions with tolerance matching (the default).",
     )
+    parser.add_argument(
+        "--threshold", type=float, default=0.5, help="--raw only: binarization threshold."
+    )
+    parser.add_argument(
+        "--match-mode",
+        choices=["tolerance", "iou"],
+        default="tolerance",
+        help="How a predicted bout is credited against a ground-truth bout (default: tolerance).",
+    )
+    parser.add_argument(
+        "--tolerance-s",
+        type=float,
+        default=5.0,
+        help="--match-mode tolerance: max onset/offset deviation in seconds. Default 5.0, "
+        "not 2.0 -- see evaluate_bouts.py / docs/classical_ml.md §6a.",
+    )
+    parser.add_argument(
+        "--iou-thresh", type=float, default=0.3, help="--match-mode iou (or --raw): minimum IoU."
+    )
+    parser.add_argument(
+        "--post-high",
+        type=float,
+        default=0.75,
+        help="Hysteresis bout-start threshold (default 0.75, not 0.65 -- see "
+        "evaluate_bouts.py / docs/classical_ml.md §6c).",
+    )
+    parser.add_argument("--post-low", type=float, default=0.52)
+    parser.add_argument("--post-max-gap", type=float, default=1.0)
+    parser.add_argument("--post-min-dur", type=float, default=2.0)
+    parser.add_argument("--post-max-dur", type=float, default=35.0)
+    parser.add_argument(
+        "--post-valley",
+        type=float,
+        default=0.35,
+        help="Split bouts at any interior probability dip below this, regardless of "
+        "duration. Pass a negative value to disable.",
+    )
+    parser.add_argument(
+        "--envelope-split",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Additionally split bouts using a raw-signal activity envelope -- see "
+        "evaluate_bouts.py / docs/classical_ml.md §6b/§6c. Default on.",
+    )
+    parser.add_argument("--envelope-window-s", type=float, default=1.5)
+    parser.add_argument("--envelope-min-piece-dur", type=float, default=8.0)
+    parser.add_argument("--envelope-prominence", type=float, default=2.5)
     args = parser.parse_args()
+
+    kwargs = dict(
+        min_bout_dur=args.min_bout_dur,
+        raw=args.raw,
+        threshold=args.threshold,
+        post_high=args.post_high,
+        post_low=args.post_low,
+        post_max_gap=args.post_max_gap,
+        post_min_dur=args.post_min_dur,
+        post_max_dur=args.post_max_dur,
+        post_valley=args.post_valley if args.post_valley >= 0 else None,
+        envelope_split=args.envelope_split,
+        envelope_window_s=args.envelope_window_s,
+        envelope_min_piece_dur=args.envelope_min_piece_dur,
+        envelope_prominence=args.envelope_prominence,
+        match_mode=args.match_mode,
+        tolerance_s=args.tolerance_s,
+        iou_thresh=args.iou_thresh,
+    )
 
     if args.all:
         manifest = load_manifest(args.upscaled_dir)
@@ -229,14 +350,14 @@ def main() -> None:
                 args.out_dir
                 / f"{row['dataset']}_{row['participant']}_{row['tag']}_{row['segment']}.png"
             )
-            plot_predictions(args.interim_root, row, out_path, args.iou_thresh, args.min_bout_dur)
+            plot_predictions(args.interim_root, row, out_path, **kwargs)
         print(f"\nDone. {len(manifest)} plot(s) written to {args.out_dir}/")
         return
 
     row = find_recording(args.upscaled_dir, args.dataset, args.participant, args.tag, args.segment)
     print(f"\nPlotting {row['dataset']} / {row['participant']} / {row['tag']} / {row['segment']}")
 
-    plot_predictions(args.interim_root, row, args.out, args.iou_thresh, args.min_bout_dur)
+    plot_predictions(args.interim_root, row, args.out, **kwargs)
 
 
 if __name__ == "__main__":
