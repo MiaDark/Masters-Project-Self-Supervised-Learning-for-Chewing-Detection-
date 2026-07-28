@@ -168,7 +168,7 @@ def main() -> None:
         "recorded in the checkpoint/MLflow so downstream scripts and the results summary know "
         "which window-size variant this run used without having to parse directory names.",
     )
-    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument(
