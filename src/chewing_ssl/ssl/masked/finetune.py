@@ -2,8 +2,7 @@
 pretrained encoder -- architecture-agnostic (CNN or Bi-GRU) and pretext-task
 -agnostic (channel-only / span-only / both masking), since pretrain.py now
 stamps `architecture`, `pretext_task`, `window_len` and `model_kwargs`
-directly into the checkpoint. No `--architecture` flag needed here: it's
-auto-detected from whichever checkpoint is passed.
+directly into the checkpoint.
 
 ChewingDetector wraps ANY of the two encoders behind one interface:
   - Bi-GRU's encode() already returns full temporal resolution (B, T, D).
@@ -12,14 +11,10 @@ ChewingDetector wraps ANY of the two encoders behind one interface:
     step, not reusing the pretrained decoder/skip connections) so both
     architectures expose the same (B, T) per-timestep logit interface.
 
-Three-phase gradual-unfreezing strategy (deeper than the previous two-phase
-frozen/unfrozen split, per the request to make fine-tuning more thorough
-now that GPU time is available):
+Three-phase gradual-unfreezing strategy:
   Phase 1 (--phase1-epochs): encoder fully frozen, head-only.
   Phase 2 (--phase2-epochs): only the encoder's LAST block unfrozen (the
-      final Bi-GRU layer / the CNN bottleneck) at a low LR -- the part
-      closest to the embedding adapts first, matching the intuition that
-      earlier layers hold more generic, reusable structure.
+      final Bi-GRU layer / the CNN bottleneck) at a low LR.
   Phase 3 (--phase3-epochs): entire encoder unfrozen at an even lower LR.
 Each phase gets its own cosine LR schedule (--lr-schedule cosine, default)
 decaying from that phase's starting LR to ~0 over that phase's epochs.
@@ -55,8 +50,7 @@ from chewing_ssl.ssl.models import ARCHITECTURES
 N_CHANNELS = len(SENSOR_CHANNELS)
 
 
-# ── Model ─────────────────────────────────────────────────────────────────────
-
+# Model
 
 class ChewingDetector(nn.Module):
     """Any pretrained encoder (CNN or Bi-GRU) + a per-timestep binary chewing head."""
@@ -88,7 +82,7 @@ class ChewingDetector(nn.Module):
         t_target = x.shape[-1]
         if logits.shape[1] != t_target:
             # CNN's encode() is downsampled (T' < T) -- upsample the HEAD'S
-            # OUTPUT (not the encoder's features) back to full resolution.
+            # OUTPUT back to full resolution.
             # Decoupled from the pretrained decoder/skip connections on
             # purpose: this head has to work for either architecture.
             logits = F.interpolate(
@@ -147,7 +141,7 @@ def load_pretrained_encoder(path: Path) -> tuple[nn.Module, dict]:
     return encoder, meta
 
 
-# ── Utilities ─────────────────────────────────────────────────────────────────
+# Utilities
 
 
 def compute_metrics(logits: torch.Tensor, labels: torch.Tensor, threshold: float = 0.5) -> dict:
@@ -165,7 +159,7 @@ def compute_metrics(logits: torch.Tensor, labels: torch.Tensor, threshold: float
     }
 
 
-# ── Training loop ─────────────────────────────────────────────────────────────
+# Training loop
 
 
 def run_epoch(
@@ -244,6 +238,8 @@ def run_phase(
     best_val_f1: float,
     history: list[dict],
     extra_meta: dict,
+    num_workers: int = 0,
+    pin_memory: bool = False,
 ) -> float:
     scheduler = (
         torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(n_epochs, 1))
@@ -256,7 +252,15 @@ def run_phase(
         print(f"  {lbl}")
         shuffled = shuffle_by_segment(train_index, seed + seed_offset + epoch)
         train_loader = DataLoader(
-            WindowDataset(shuffled, with_label=True), batch_size=batch_size, shuffle=False
+            WindowDataset(shuffled, with_label=True),
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            # "spawn" avoids a fork-after-CUDA-init deadlock: the model is already
+            # on the GPU by the time this loader is (re)built every epoch, and
+            # forking a process with a live CUDA context is unsafe.
+            multiprocessing_context="spawn" if num_workers > 0 else None,
         )
         train_m = run_epoch(model, train_loader, device, optimizer, pos_weight, lbl)
         val_m = run_epoch(model, val_loader, device, None, pos_weight, lbl)
@@ -296,7 +300,7 @@ def run_phase(
     return best_val_f1
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# Entry point
 
 
 def main() -> None:
@@ -318,7 +322,7 @@ def main() -> None:
         "--phase2-epochs", type=int, default=15, help="Only the encoder's last block unfrozen."
     )
     parser.add_argument("--phase3-epochs", type=int, default=20, help="Entire encoder unfrozen.")
-    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--head-lr", type=float, default=1e-3)
     parser.add_argument(
         "--last-block-lr", type=float, default=1e-4, help="Phase 2 encoder LR (10x below head-lr)."
@@ -329,6 +333,7 @@ def main() -> None:
     parser.add_argument("--lr-schedule", choices=["none", "cosine"], default="cosine")
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--max-train-windows", type=int, default=None)
+    parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default=None)
     args = parser.parse_args()
@@ -384,15 +389,23 @@ def main() -> None:
     print(f"\n  Chewing fraction (train sample): {chew_frac:.1%}")
     print(f"  pos_weight for BCE             : {pos_weight.item():.2f}\n")
 
+    pin_memory = device.type == "cuda"
+    mp_context = "spawn" if args.num_workers > 0 else None
     val_loader = DataLoader(
         WindowDataset(val_index.sort_values("segment_path").reset_index(drop=True), with_label=True),
         batch_size=args.batch_size,
         shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=pin_memory,
+        multiprocessing_context=mp_context,
     )
     test_loader = DataLoader(
         WindowDataset(test_index.sort_values("segment_path").reset_index(drop=True), with_label=True),
         batch_size=args.batch_size,
         shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=pin_memory,
+        multiprocessing_context=mp_context,
     )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -441,6 +454,7 @@ def main() -> None:
             best_val_f1 = run_phase(
                 1, args.phase1_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
                 device, args.batch_size, pos_weight, args.seed, 0, best_ckpt, best_val_f1, history, extra_meta,
+                num_workers=args.num_workers, pin_memory=pin_memory,
             )
 
         # ── Phase 2: only the last encoder block unfrozen ──
@@ -457,6 +471,7 @@ def main() -> None:
             best_val_f1 = run_phase(
                 2, args.phase2_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
                 device, args.batch_size, pos_weight, args.seed, 1000, best_ckpt, best_val_f1, history, extra_meta,
+                num_workers=args.num_workers, pin_memory=pin_memory,
             )
 
         # ── Phase 3: entire encoder unfrozen ──
@@ -473,6 +488,7 @@ def main() -> None:
             best_val_f1 = run_phase(
                 3, args.phase3_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
                 device, args.batch_size, pos_weight, args.seed, 2000, best_ckpt, best_val_f1, history, extra_meta,
+                num_workers=args.num_workers, pin_memory=pin_memory,
             )
 
         # ── Final test evaluation ──

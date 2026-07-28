@@ -130,6 +130,7 @@ for f in checkpoints/pretrain_masked/*/*_best.pt; do
     --checkpoint "$f" \
     --processed-root $(echo "$f" | grep -q w200 && echo data/processed || echo data/processed_w2s0.25) \
     --out-dir checkpoints/finetune_masked \
+    --num-workers 6 \
     --device cuda
 done
 ```
