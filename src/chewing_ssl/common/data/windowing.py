@@ -363,7 +363,7 @@ class WindowDataset:
         index: pd.DataFrame,
         with_label: bool,
         channels: list[str] = SENSOR_CHANNELS,
-        cache_size: int = 8,
+        cache_size: int = 32,
     ):
         self.index = index.reset_index(drop=True)
         self.with_label = with_label
