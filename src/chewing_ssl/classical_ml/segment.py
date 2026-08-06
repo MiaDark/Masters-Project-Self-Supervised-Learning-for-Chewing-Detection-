@@ -1,8 +1,3 @@
-"""Materialized (label-carrying) windowing for classical-ML chewing-bout
-detection, as opposed to windowing.py's lazy index used by the deep-learning
-(TF-C/TF-FC/masked-reconstruction) training loops.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -13,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS
-from chewing_ssl.common.data.windowing import WINDOW_LEN, extract_participant, list_tags
+from chewing_ssl.common.data.windowing import TARGET_HZ, WINDOW_LEN, extract_participant, list_tags
 
 
 def window_label(label_slice: np.ndarray, threshold: float = 0.5) -> float:
@@ -55,7 +50,22 @@ def segment_recording(
     return np.stack(xs), np.array(ys, dtype=np.float32), starts
 
 
-def run(interim_root: Path, splits_path: Path, out_dir: Path, window_len: int, stride: int) -> None:
+def run(
+    interim_root: Path,
+    splits_path: Path,
+    out_dir: Path,
+    window_len: int,
+    purpose_stride: dict[str, int],
+    train_overlap: float | None = None,
+) -> None:
+    """purpose_stride: {"train": ..., "val": ..., "test": ...} -- each purpose
+    gets its own stride (see main()'s --train-overlap: train-purpose windows
+    may overlap, val/test never do, mirroring windowing.py's own
+    purpose_stride_for convention for the deep-learning pipelines).
+    `train_overlap` is recorded into segment_meta.json purely for provenance
+    (e.g. so extract_features.py/train.py can log "how the input was
+    processed" to MLflow) -- it plays no role in the windowing itself,
+    which only uses purpose_stride."""
     splits = json.loads(splits_path.read_text())
     datasets = [d for d in splits if d != "pretrain_val_holdout"]
 
@@ -72,7 +82,7 @@ def run(interim_root: Path, splits_path: Path, out_dir: Path, window_len: int, s
 
             seg_dir = interim_root / dataset / tag
             for seg_path in sorted(seg_dir.glob("segment_*.parquet")):
-                X, y, starts = segment_recording(seg_path, window_len, stride)
+                X, y, starts = segment_recording(seg_path, window_len, purpose_stride[purpose])
                 if len(y) == 0:
                     continue
                 by_purpose[purpose]["X"].append(X)
@@ -115,6 +125,23 @@ def run(interim_root: Path, splits_path: Path, out_dir: Path, window_len: int, s
             f"{y.mean():.1%} positive  |  shape {X.shape}"
         )
 
+    meta_path = out_dir / "segment_meta.json"
+    meta_path.write_text(
+        json.dumps(
+            {
+                "interim_root": str(interim_root),
+                "splits_path": str(splits_path),
+                "window_len": window_len,
+                "window_seconds": window_len / TARGET_HZ,
+                "purpose_stride": purpose_stride,
+                "train_overlap": train_overlap,
+                "channels": SENSOR_CHANNELS,
+            },
+            indent=2,
+        )
+    )
+    print(f"  Wrote provenance -> {meta_path}")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -125,28 +152,43 @@ def main() -> None:
         "--window-seconds", type=float, default=None, help="Default: configs/preprocessing.yaml."
     )
     parser.add_argument(
-        "--stride-seconds",
+        "--train-overlap",
         type=float,
         default=None,
-        help="Default: same as --window-seconds (non-overlapping). Set smaller for overlapping windows.",
+        help="Fraction overlap for TRAIN-purpose windows only (default: "
+        "configs/preprocessing.yaml's window.train_overlap, currently 0.5 -- same "
+        "value and same asymmetric convention windowing.py uses for the SSL "
+        "pipelines' pretrain_train/finetune_train). val/test windows are ALWAYS "
+        "non-overlapping regardless of this flag -- reported metrics must stay "
+        "computed on independent windows; only the training set's density changes. "
+        "Pass 0.0 to reproduce the fully-non-overlapping behavior this script used "
+        "before train-purpose overlap was reintroduced.",
     )
     args = parser.parse_args()
 
-    from chewing_ssl.common.data.windowing import TARGET_HZ
+    from chewing_ssl.common.data.windowing import TRAIN_OVERLAP
 
     window_len = int(args.window_seconds * TARGET_HZ) if args.window_seconds else WINDOW_LEN
-    stride = int(args.stride_seconds * TARGET_HZ) if args.stride_seconds else window_len
+    train_overlap = args.train_overlap if args.train_overlap is not None else TRAIN_OVERLAP
+    # Asymmetric by purpose, matching windowing.py's purpose_stride_for: train
+    # windows may overlap (denser training set, same rationale the SSL
+    # pipelines already use for pretrain_train/finetune_train), val/test
+    # windows never do (independent, non-correlated windows are what makes
+    # the reported window-level metrics trustworthy -- this is the one
+    # invariant that must never be reintroduced as a footgun default).
+    train_stride = max(int(window_len * (1 - train_overlap)), 1)
+    eval_stride = window_len
+    purpose_stride = {"train": train_stride, "val": eval_stride, "test": eval_stride}
 
     print("\nMaterialized ML segmentation")
     print("=" * 60)
     print(f"  Window length : {window_len} samples ({window_len / TARGET_HZ:.1f}s)")
-    print(
-        f"  Stride        : {stride} samples ({'non-overlapping' if stride >= window_len else 'overlapping'})"
-    )
+    print(f"  Train stride  : {train_stride} samples ({train_overlap:.0%} overlap)")
+    print(f"  Val/test stride: {eval_stride} samples (non-overlapping, always)")
     print(f"  Channels      : {len(SENSOR_CHANNELS)} ({', '.join(SENSOR_CHANNELS)})")
     print("=" * 60)
 
-    run(args.interim_root, args.splits, args.out, window_len, stride)
+    run(args.interim_root, args.splits, args.out, window_len, purpose_stride, train_overlap)
 
     print(f"\nDone. Segments written to {args.out}/")
 
