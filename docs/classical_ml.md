@@ -1,21 +1,65 @@
 # Classical ML baseline
 
-A non-deep-learning comparison point to the TF-C/TF-FC contrastive-pretraining path.
-Same underlying data (`data/interim_normalized`, the same subject-disjoint
-`data/processed/splits.json`), different pipeline: instead of learning a
-representation, this path extracts ~850 hand-crafted signal-processing
-features per window and trains a standard classifier directly.
+A non-deep-learning comparison point to the deep-learning pipelines in this
+project. Same underlying data (`data/interim_normalized`, the same
+subject-disjoint `data/processed/splits.json`), different pipeline: instead
+of learning a representation, this path extracts ~850 hand-crafted
+signal-processing features per window and trains a standard classifier
+directly.
 
-Five scripts, run in this order:
+**The actual, completed comparison target is masked-reconstruction SSL**
+(`docs/ssl_masked.md`) — its 8-way ablation (2 pretext tasks × 2
+architectures × 2 window sizes) is fully pretrained, fine-tuned, and
+evaluated, with results in `checkpoints/masked_ablation_summary.csv`. The
+contrastive TF-C path (`docs/tfc.md`) exists and is checkpoint-compatible
+with fine-tuning, but has not yet been pretrained at scale — see that
+document's own open items. §7 below gives the current side-by-side numbers
+against masked-reconstruction's best combination.
 
+## Commands — the full pipeline, both window-size configurations
+
+Five scripts, run in this order. `checkpoints/` holds every model-derived
+artifact (models, plots) — `data/processed/` holds only preprocessed *data*
+(segments, features), never predictions. There is no separate "upscale
+predictions" script/artifact anymore — `evaluate_bouts.py` and
+`plot_predictions.py` each compute predictions FRESH from `--model-path`
+every run (`chewing_ssl.classical_ml.upscale_predictions.
+compute_upscaled_recordings`, a library function, not a CLI) — see
+`docs/bite_evaluation.md` for why a cached prediction artifact was a
+reproducibility risk (silently stale if the model changed without
+regenerating it) and was removed.
+
+**4s window (50% overlap)**:
 ```bash
-python -m chewing_ssl.classical_ml.segment          --stride-seconds 2.0
-python -m chewing_ssl.classical_ml.extract_features
-python -m chewing_ssl.classical_ml.train         --model random_forest      # single quick run, OR:
-python -m chewing_ssl.classical_ml.train         --sweep-config configs/train_ml.yaml  # §3a
-python -m chewing_ssl.classical_ml.upscale_predictions --model-path checkpoints/train_ml/best_model.joblib --window-seconds 4.0
-python -m chewing_ssl.classical_ml.evaluate_bouts
+python -m chewing_ssl.classical_ml.segment --out data/processed/ml_segments --stride-seconds 2.0
+python -m chewing_ssl.classical_ml.extract_features --segments-dir data/processed/ml_segments --out data/processed/ml_features
+python -m chewing_ssl.classical_ml.train --sweep-config configs/train_ml.yaml --features-dir data/processed/ml_features --out-dir checkpoints/train_ml
+python -m chewing_ssl.classical_ml.evaluate_bouts \
+  --model-path checkpoints/train_ml/best_model.joblib --features-path data/processed/ml_features/test.parquet \
+  --run-name rf_4s --model-type random_forest --summary-csv checkpoints/classical_ml_summary.csv
+python -m chewing_ssl.classical_ml.plot_predictions --all \
+  --model-path checkpoints/train_ml/best_model.joblib --features-path data/processed/ml_features/test.parquet \
+  --out-dir checkpoints/plots/ml_predictions_4s/all
 ```
+
+**2s window (25% overlap)** — same five steps, `_w2s0.25`-suffixed paths throughout, plus `--window-seconds 2.0`:
+```bash
+python -m chewing_ssl.classical_ml.segment --out data/processed/ml_segments_w2s0.25 --window-seconds 2.0 --stride-seconds 1.5
+python -m chewing_ssl.classical_ml.extract_features --segments-dir data/processed/ml_segments_w2s0.25 --out data/processed/ml_features_w2s0.25
+python -m chewing_ssl.classical_ml.train --sweep-config configs/train_ml.yaml --features-dir data/processed/ml_features_w2s0.25 --out-dir checkpoints/train_ml_w2s0.25
+python -m chewing_ssl.classical_ml.evaluate_bouts \
+  --model-path checkpoints/train_ml_w2s0.25/best_model.joblib --features-path data/processed/ml_features_w2s0.25/test.parquet \
+  --window-seconds 2.0 --run-name rf_2s --model-type random_forest --summary-csv checkpoints/classical_ml_summary.csv
+python -m chewing_ssl.classical_ml.plot_predictions --all \
+  --model-path checkpoints/train_ml_w2s0.25/best_model.joblib --features-path data/processed/ml_features_w2s0.25/test.parquet \
+  --window-seconds 2.0 --out-dir checkpoints/plots/ml_predictions_w2s0.25/all
+```
+
+`evaluate_bouts.py` and `plot_predictions.py` both call the shared
+postprocessing/evaluation code (`common/evaluation/postprocess.py`/
+`pipeline.py`) internally — see `docs/bite_evaluation.md` for that
+architecture and for `compare_bites.py`, a later step that compares this
+pipeline's output against masked-reconstruction SSL's directly.
 
 ## 1. Segmentation (`chewing_ssl.classical_ml.segment`)
 
@@ -30,7 +74,7 @@ a dense array up front, with its label attached.
   deep-learning path) + the same `splits.json`, so that results stay directly
   comparable in terms of *which* recordings are in train/val/test.
 - **Label**: majority vote over the window's dense per-timestep labels
-  (`mean >= 0.5 → 1`)m neaning one label per window (not per-timestep;
+  (`mean >= 0.5 → 1`), meaning one label per window (not per-timestep;
   classical ML needs a single target per feature vector).
 - **Overlap**: window = 4.0s/2.0s (200 samples/100 samples @ 50Hz from `configs/preprocessing.yaml`).
   `--stride-seconds` controls overlap; the 4s configuration uses **50%** overlap, whereas the 2s configuration uses **25%** overlap, **for every split, including val/test**.
@@ -55,8 +99,14 @@ using `emteqai.utils.features` drivers, applied per-channel:
 
 Output: `data/processed/ml_features/{purpose}.parquet`, one row per window,
 850 feature columns + 6 meta columns (`dataset, participant, tag, segment,
-start, label`). Shapes: train `(56735, 856)`, val `(18272, 856)`, test
-`(20508, 856)`.
+start, label`), plus `feature_medians.json` (the train-split medians used to
+fill NaN/Inf in val/test — computed from train only, never val/test, to avoid
+leakage). Shapes:
+
+| | train | val | test |
+|---|---|---|---|
+| 4s window (`ml_features`) | `(56735, 856)` | `(18272, 856)` | `(20508, 856)` |
+| 2s/25%-overlap (`ml_features_w2s0.25`) | `(75810, 856)` | `(24420, 856)` | `(27398, 856)` |
 
 ## 3. Model training (`chewing_ssl.classical_ml.train`)
 
@@ -89,7 +139,7 @@ that model family, instead of the single `--model` run:
 - One combined row-per-combo results table -> `checkpoints/train_ml/sweep_results.csv`
 - The combo with the best `--sweep-metric` (default `val_f1` — **val**) is copied
   to `checkpoints/train_ml/best_model.joblib`, this is what
-  `upscale_predictions.py --model-path` points at.
+  `evaluate_bouts.py`/`plot_predictions.py --model-path` points at.
 
 **Result of the first sweep run** (same train/val/test split as §4 below):
 
@@ -159,40 +209,42 @@ and the sweep infrastructure is there to re-select against a different
 `n_estimators=300`, for reference: val F1=0.819, test F1=0.846 — see §3a
 for why the sweep's gain over this is real but small.)
 
-**Caveat — not strictly comparable to the TF-C/TF-FC numbers.** The
-deep-learning path's `finetune_test`/`finetune_val` windows are
-non-overlapping by design (`docs/architecture.md`: "overlapping eval
+**Caveat — not strictly comparable to the masked-reconstruction SSL
+numbers.** The deep-learning path's `finetune_test`/`finetune_val` windows
+are non-overlapping by design (`docs/architecture.md`: "overlapping eval
 windows are highly correlated and would inflate the effective sample
-size"). This classical-ML run's val/test windows **do** overlap (50%,
-`--stride-seconds 2.0` was applied uniformly to every split), which
-correlates neighbouring evaluation windows and likely inflates these
-window-level metrics somewhat versus a non-overlapping-eval comparison. The
-test AUC=0.959/F1=0.846 numbers are internally valid (correctly computed,
-no data leakage — see the race-condition fix note below) but should be read
-as "classical ML does at least this well," not as a clean apples-to-apples
-number against TF-C (F1=0.759) / TF-FC (F1=0.808).
-
-## TODO:
-Currently, the SSL pipeline runs on both 4s and 2s windows, so that it is directly comparable with the classical ML approach.
-
+size"). This classical-ML run's val/test windows **do** overlap (50% for the
+4s config, 25% for 2s — `--stride-seconds` was applied uniformly to every
+split), which correlates neighbouring evaluation windows and likely inflates
+these window-level metrics somewhat versus a non-overlapping-eval comparison.
+The test AUC=0.961/F1=0.844 numbers are internally valid (correctly computed,
+no data leakage) but should be read as "classical ML does at least this
+well" at the window level, not as a clean apples-to-apples number against
+masked-reconstruction SSL's own window-level F1 (0.799 best combo,
+`docs/ssl_masked.md`). See §7 below for the level at which the two
+pipelines *are* directly comparable — bout-level detection, under shared
+postprocessing code and parameters.
 
 ## 5. From window predictions to a continuous timeline
 
-`train_ml.py`'s model predicts one probability per **window** (4s / 200
+`train.py`'s model predicts one probability per **window** (4s / 200
 timesteps), but a real recording needs a decision at every **timestep** for
-visualization and bout-level evaluation. `upscale_predictions.py` bridges
-this: it re-predicts on `data/processed/ml_features/test.parquet` and, for
-every `(dataset, participant, tag, segment)` recording, "paints" each
-window's probability across every original-row index it covers. Where
-windows overlap (they do here — 50% stride), a timestep's final probability
-is the **mean of every window covering it** (`n_windows_covering` records
-how many). Ground truth needs no upscaling — it's already dense
+visualization and bout-level evaluation.
+`chewing_ssl.classical_ml.upscale_predictions.compute_upscaled_recordings`
+(a library function, not a script — see `docs/bite_evaluation.md`) bridges
+this: it re-predicts on `--features-path` and, for every `(dataset,
+participant, tag, segment)` recording, "paints" each window's probability
+across every original-row index it covers. Where windows overlap (they do
+here — 50% stride), a timestep's final probability is the **mean of every
+window covering it**. Ground truth needs no upscaling — it's already dense
 per-timestep in `data/interim_normalized`.
 
-Output: `data/processed/ml_predictions_upscaled/manifest.csv` (the identity
-source of truth — filenames are opaque `recording_NNNN.parquet` indices,
-since `tag`/`segment` can themselves contain underscores) + one parquet per
-recording (`row_idx, pred_prob, pred_label, n_windows_covering`).
+This runs FRESH, in-memory, every time `evaluate_bouts.py`/
+`plot_predictions.py`/`compare_bites.py` is invoked — there is no cached
+prediction artifact on disk (there used to be, `checkpoints/
+ml_predictions_upscaled/`; removed as a reproducibility risk, since a cached
+artifact can silently go stale if the model is retrained without
+regenerating it — see `docs/bite_evaluation.md`).
 
 `plot_predictions.py` (`--all` for every test recording, or
 `--dataset/--participant/--tag/--segment` for one) overlays
@@ -200,7 +252,7 @@ recording (`row_idx, pred_prob, pred_label, n_windows_covering`).
 panel) and predicted shading (bottom panel) (`checkpoints/plots/ml_predictions/all/`).
 By default the bottom panel now shows **postprocessed** predictions with
 **tolerance-based** bout matching — the same defaults as `evaluate_bouts.py`
-(see §6) — not the raw thresholded `pred_label` it used previously. Pass
+(see §6) — not the raw thresholded prediction it used previously. Pass
 `--raw` to get the old raw-threshold/strict-IoU behavior back for comparison.
 
 ## 6. Does this pipeline need postprocessing? (bout-level investigation)
@@ -470,6 +522,54 @@ might recover some of that gap and improve the bout-level numbers further.
 net gain, which is worth weighing before switching the documented default
 away from 4s.
 
+## 7. Comparing against masked-reconstruction SSL
+
+`evaluate_bouts.py` supports a `--summary-csv` (default
+`checkpoints/classical_ml_summary.csv`), the classical-ML analogue of
+`docs/ssl_masked.md`'s own `checkpoints/masked_ablation_summary.csv`
+— same column schema, and the same both-match-modes-always-computed
+convention. As of this round, the postprocessing/evaluation code itself is
+also shared, not just the schema — see `docs/bite_evaluation.md` for the
+unified architecture (`common/evaluation/postprocess.py`/`pipeline.py`) and
+`common.evaluation.compare_bites` for a bite-by-bite ledger comparing both
+pipelines directly.
+
+```bash
+python -m chewing_ssl.classical_ml.evaluate_bouts \
+  --model-path checkpoints/train_ml/best_model.joblib \
+  --features-path data/processed/ml_features/test.parquet \
+  --run-name rf_4s --model-type random_forest \
+  --summary-csv checkpoints/classical_ml_summary.csv
+
+python -m chewing_ssl.classical_ml.evaluate_bouts \
+  --model-path checkpoints/train_ml_w2s0.25/best_model.joblib \
+  --features-path data/processed/ml_features_w2s0.25/test.parquet --window-seconds 2.0 \
+  --run-name rf_2s --model-type random_forest \
+  --summary-csv checkpoints/classical_ml_summary.csv
+```
+
+**Current numbers** (both summary CSVs, verified against a real run of each
+pipeline — GT=944 bouts in both, confirming the same held-out test
+population). SSL's numbers below reflect `docs/bite_evaluation.md`'s
+validated probability-smoothing addition (`smooth_window_s=2.0`, SSL-only —
+its bout F1 was 0.674 IoU / 0.489 tolerance before that change):
+
+| | window-level test F1 | bout F1, IoU≥0.3 | bout F1, tolerance=5s |
+|---|---|---|---|
+| **Classical ML, 4s (`rf_4s`)** | **0.844** | **0.763** | 0.512 |
+| Classical ML, 2s (`rf_2s`) | 0.814 | 0.743 | **0.551** |
+| Masked SSL, best combo (`span_bigru_w200`) | 0.799 | 0.731 | 0.527 |
+
+Classical ML still leads on window-level F1 and IoU-mode bout F1 at both
+window sizes, but the gap narrowed substantially on IoU-mode after SSL's
+smoothing fix (0.674→0.731, now within 3 points of `rf_4s`'s 0.763). On
+tolerance-mode specifically, `span_bigru_w200` (0.527) now beats `rf_4s`
+(0.512), though `rf_2s` (0.551) is still ahead of both. Full masked-SSL
+per-combination numbers (2 pretext tasks × 2 architectures × 2 window sizes)
+are in `checkpoints/masked_ablation_summary.csv` (`docs/ssl_masked.md`
+§8) — note only `span_bigru_w200` has been re-evaluated with the smoothing
+fix so far; the other 7 rows still reflect the pre-fix default.
+
 ## Open items / not yet done
 
 - **Full 20-combo hyperparameter sweep at the 2s/25% window** (§6c) — only
@@ -480,8 +580,10 @@ away from 4s.
 - **Overlapping eval windows** (§4 caveat) — a clean non-overlapping-eval
   variant (`--stride-seconds` equal to window length for val/test only,
   overlap for train only, mirroring the deep-learning path's convention)
-  would make the comparison to TF-C/TF-FC direct; not yet run. Applies to
-  both the 4s and 2s configurations.
+  would make the window-level comparison to masked-reconstruction SSL direct;
+  not yet run. Applies to both the 4s and 2s configurations. (Bout-level
+  comparison is already direct — see §7 — since it doesn't depend on
+  window-level evaluation overlap at all.)
 - **Bout-level boundary precision** (§6) — tolerance matching (§6a), the
   envelope split (§6b/§6c), and the 2s window (§6c) all paper over or
   recover around imprecise boundaries and merged predictions at
@@ -497,9 +599,9 @@ away from 4s.
   `train.py`'s model hyperparameters already have) would make these
   numbers more trustworthy.
 - **`gradient_boosting`/`logistic_regression`** have not been run end-to-end
-  through `upscale_predictions.py`/`evaluate_bouts.py` — only
-  `random_forest` (specifically `rf_06_regularized_leaf5`, §3a's sweep
-  winner) has full bout-level metrics at every stage.
+  through `evaluate_bouts.py` — only `random_forest` (specifically
+  `rf_06_regularized_leaf5`, §3a's sweep winner) has full bout-level metrics
+  at every stage.
 
 
 

@@ -153,45 +153,4 @@ python scripts/plot_preprocessing_steps.py --dataset SIPMEatingStudy --channel a
 ```
 
 Falls back to a clearly-labelled segment-level mean/std for the normalized
-panel if `data/processed/global_stats.json` doesn't exist yet.
-
-## Open items / not yet covered here
-
-- **Dataset coverage**: `preprocess.py`'s dataset list (and `windowing.py`'s
-  split/purpose logic) currently only knows about `SIPMEatingStudy`,
-  `SussexEatingUK`, and `Spectacle`. `FEIT_eating_S05`, `Office_eating_s05`,
-  and `Spectacle_NonMeal` are not wired in yet — extending the split logic
-  for them is a separate follow-up.
-- **Spectacle scaling**: the full `Spectacle` dataset (as opposed to the
-  already-reverted `Spectacle_NonMeal` slice) has not had its emteqai
-  scaling reverted yet — see `docs/data.md` Next steps. Running it through
-  this pipeline as-is would mix raw-count-scale and physical-scale data in
-  the same channel; `preprocess.py --root` defaults to
-  `raw_unscaled/` (correct for SIPM/Sussex) specifically to avoid silently
-  doing this for Spectacle by accident.
-- **Butterworth cutoff/order are a first pass**, not empirically tuned —
-  reasonable defaults from this project's own PSD analysis and general
-  wearable-IMU practice, exposed as `--cutoff-hz`/`--filter-order` CLI flags
-  if they need revisiting once a model exists.
-- **Derivative as sibling channels, not a replacement**: open design
-  question, not fully settled — see discussion with the user. Currently the
-  derivative is *appended* (`<channel>_d1`), keeping the raw channel too,
-  rather than replacing it. Worth noting: for accelerometer specifically,
-  the derivative naturally suppresses the slow-varying gravity/head-tilt
-  component (its derivative ≈ 0) that the raw channel still carries,
-  so the two channels aren't as redundant as they might look — but this
-  hasn't been empirically validated against the simpler alternative
-  (replace, 5 channels instead of 10).
-
-## Relationship to augmentation
-
-This document covers only the deterministic, one-time preprocessing pass
-that turns raw CSVs into the canonical windowed dataset above. Augmentation
-(jittering, scaling, permutation, masking in the time domain; phase-shift,
-low-pass, frequency add/remove in the frequency domain, per the
-Time-Frequency Fusion Contrasting paper) happens **after windowing**, not
-before: it's applied **online, per-batch, at training/pretraining time**, to
-each already-sliced window (`WindowDataset.__getitem__` output) — not
-another offline pass over the dataset, and not something `windowing.py`
-itself does. Order: raw → filter/derivative → normalize → window (index
-only) → **augment (next step, per-batch, at load time)** → model.
+panel if `data/processed/global_stats.json` doesn't exist yet;
