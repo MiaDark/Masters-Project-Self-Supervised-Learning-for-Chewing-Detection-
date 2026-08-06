@@ -30,10 +30,19 @@ def _configure() -> None:
 
 
 @contextmanager
-def start_run(run_name: str | None = None, tags: dict[str, str] | None = None):
-    """Context manager that configures MLflow and opens a run."""
+def start_run(
+    run_name: str | None = None, tags: dict[str, str] | None = None, nested: bool = False
+):
+    """Context manager that configures MLflow and opens a run.
+
+    `nested=True` opens this as a CHILD of the currently-active run (e.g. one
+    child run per hyperparameter-sweep combination, grouped under one parent
+    run for the whole sweep) -- MLflow requires this flag explicitly rather
+    than inferring it, to avoid accidentally nesting runs from an unrelated
+    already-open run elsewhere in the call stack.
+    """
     _configure()
-    with mlflow.start_run(run_name=run_name, tags=tags) as run:
+    with mlflow.start_run(run_name=run_name, tags=tags, nested=nested) as run:
         yield run
 
 
@@ -45,6 +54,12 @@ def log_params(params: dict[str, Any]) -> None:
 def log_metrics(metrics: dict[str, float], step: int | None = None) -> None:
     """Log a dict of metrics, optionally at a given training step."""
     mlflow.log_metrics(metrics, step=step)
+
+
+def log_artifact(local_path: str, artifact_path: str | None = None) -> None:
+    """Log a local file (e.g. a results CSV, a feature-importance plot) as
+    an MLflow artifact, attached to the current run."""
+    mlflow.log_artifact(local_path, artifact_path=artifact_path)
 
 
 def log_pytorch_model(model, artifact_path: str = "model", registered_name: str | None = None):
