@@ -34,9 +34,19 @@ from __future__ import annotations
 
 from typing import Literal
 
+import numpy as np
 import torch
 
 MaskMode = Literal["channel", "span", "both"]
+
+# Span-length bounds (seconds), grounded in src/EDA/tables/summary_stats.csv --
+# real within-meal inter-bite pauses run p5=0.43s to p75=5.04s (median 2.47s),
+# real bites p25=6.4s to p75=15.1s. Default span bounds cover the pause scale
+# (the shorter, sub-window-length phenomenon fixed-ratio masking couldn't
+# represent at all) rather than the bite scale, since a span longer than the
+# window itself is meaningless. See docs/preprocessing.md and src/EDA/.
+DEFAULT_MIN_SPAN_S = 0.4
+DEFAULT_MAX_SPAN_S = 5.0
 
 
 def _sample_channel_mask(
@@ -46,27 +56,83 @@ def _sample_channel_mask(
     return torch.rand(n_channels, generator=generator) < channel_mask_prob
 
 
+def _sample_span_lengths(
+    n_timesteps: int,
+    span_mask_ratio: float,
+    n_spans: int,
+    fs: float,
+    min_span_s: float,
+    max_span_s: float,
+    generator: torch.Generator | None,
+) -> list[int]:
+    """Sample `n_spans` VARIABLE span lengths (in samples): each drawn
+    independently, log-uniformly, from [min_span_s, max_span_s] seconds --
+    then rescaled (preserving relative proportions) so the total still
+    matches span_mask_ratio * n_timesteps, the same overall masking BUDGET
+    the old fixed-ratio scheme used, just distributed unevenly instead of
+    split equally across spans.
+
+    Log-uniform (not uniform) so short spans (sub-1s, chew-cycle scale) are
+    sampled about as often as long ones (multi-second, pause scale) rather
+    than the distribution being dominated by long spans -- real inter-bite
+    pauses are themselves heavy-tailed (see src/EDA/plots/gap_duration_hist.png).
+    """
+    target_total = int(span_mask_ratio * n_timesteps)
+    if target_total <= 0:
+        return [0] * n_spans
+    lo = max(min_span_s, 1.0 / fs)
+    hi = max(max_span_s, lo * 1.01)
+    log_lo, log_hi = float(np.log(lo)), float(np.log(hi))
+    u = torch.rand(n_spans, generator=generator)
+    raw_s = torch.exp(log_lo + u * (log_hi - log_lo))
+    raw_samples = (raw_s * fs).clamp(min=1.0)
+    scale = target_total / float(raw_samples.sum())
+    lengths = (raw_samples * scale).round().clamp(min=1, max=n_timesteps).long()
+    return lengths.tolist()
+
+
 def _sample_span_mask(
     n_timesteps: int,
     span_mask_ratio: float,
     min_spans: int,
     max_spans: int,
     generator: torch.Generator | None,
+    fs: float = 50.0,
+    min_span_s: float = DEFAULT_MIN_SPAN_S,
+    max_span_s: float = DEFAULT_MAX_SPAN_S,
+    variable_length: bool = True,
 ) -> torch.Tensor:
-    """(T,) bool -- 1-3 contiguous spans totaling ~span_mask_ratio of timesteps."""
-    target_masked = int(span_mask_ratio * n_timesteps)
+    """(T,) bool -- 1-3 contiguous spans totaling ~span_mask_ratio of timesteps.
+
+    variable_length=True (default): each span's own length is sampled from
+    the real inter-bite-pause timescale this project measured (src/EDA/),
+    not split evenly -- see `_sample_span_lengths`.
+    variable_length=False reproduces the original deterministic equal-split
+    behavior (kept only to exactly reproduce pre-existing ablation
+    checkpoints; not recommended for new pretraining runs).
+    """
     n_spans = int(torch.randint(min_spans, max_spans + 1, (1,), generator=generator).item())
     time_mask = torch.zeros(n_timesteps, dtype=torch.bool)
-    remaining = target_masked
-    for s in range(n_spans):
-        span_len = remaining // (n_spans - s) if s < n_spans - 1 else remaining
-        span_len = max(0, min(span_len, n_timesteps))
-        if span_len == 0:
+
+    if variable_length:
+        span_lengths = _sample_span_lengths(
+            n_timesteps, span_mask_ratio, n_spans, fs, min_span_s, max_span_s, generator
+        )
+    else:
+        target_masked = int(span_mask_ratio * n_timesteps)
+        remaining = target_masked
+        span_lengths = []
+        for s in range(n_spans):
+            span_len = remaining // (n_spans - s) if s < n_spans - 1 else remaining
+            span_lengths.append(max(0, min(span_len, n_timesteps)))
+            remaining -= span_lengths[-1]
+
+    for span_len in span_lengths:
+        if span_len <= 0:
             continue
         hi = max(1, n_timesteps - span_len + 1)
         start = int(torch.randint(0, hi, (1,), generator=generator).item())
         time_mask[start : start + span_len] = True
-        remaining -= span_len
     return time_mask
 
 
@@ -81,12 +147,19 @@ def sample_mask_batch(
     max_spans: int = 3,
     device: torch.device | str = "cpu",
     generator: torch.Generator | None = None,
+    fs: float = 50.0,
+    min_span_s: float = DEFAULT_MIN_SPAN_S,
+    max_span_s: float = DEFAULT_MAX_SPAN_S,
+    variable_length: bool = True,
 ) -> torch.Tensor:
     """Sample a boolean mask, shape (B, C, T), True = masked.
 
     mode="channel": whole-channel masking only.
     mode="span": temporal span masking only.
     mode="both": both, OR'd together (legacy combined behavior).
+
+    variable_length/fs/min_span_s/max_span_s: see `_sample_span_mask` --
+    only relevant when mode is "span" or "both".
     """
     if mode not in ("channel", "span", "both"):
         raise ValueError(f"Unknown mask mode {mode!r} -- expected 'channel', 'span', or 'both'.")
@@ -100,7 +173,10 @@ def sample_mask_batch(
             else torch.zeros(n_channels, dtype=torch.bool)
         )
         time_mask = (
-            _sample_span_mask(n_timesteps, span_mask_ratio, min_spans, max_spans, generator)
+            _sample_span_mask(
+                n_timesteps, span_mask_ratio, min_spans, max_spans, generator,
+                fs=fs, min_span_s=min_span_s, max_span_s=max_span_s, variable_length=variable_length,
+            )
             if mode in ("span", "both")
             else torch.zeros(n_timesteps, dtype=torch.bool)
         )

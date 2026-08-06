@@ -27,7 +27,7 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 
 from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS
-from chewing_ssl.common.data.windowing import WindowDataset
+from chewing_ssl.common.data.windowing import TARGET_HZ, WindowDataset
 from chewing_ssl.ssl.models import ARCHITECTURES
 from chewing_ssl.ssl.models.masking import (
     apply_mask_token,
@@ -168,9 +168,35 @@ def main() -> None:
         "recorded in the checkpoint/MLflow so downstream scripts and the results summary know "
         "which window-size variant this run used without having to parse directory names.",
     )
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument(
+        "--hidden-size",
+        type=int,
+        default=None,
+        help="Bi-GRU only: override hidden_size (default: encoder's own default, 64 -- "
+        "the value held fixed across the original 8-way ablation). Ignored for --architecture cnn.",
+    )
+    parser.add_argument(
+        "--num-layers",
+        type=int,
+        default=None,
+        help="Bi-GRU only: override num_layers (default: 2). Ignored for --architecture cnn.",
+    )
+    parser.add_argument(
+        "--encoder-dropout",
+        type=float,
+        default=None,
+        help="Bi-GRU only: override inter-layer dropout (default: 0.1, only applied when "
+        "num_layers > 1). Ignored for --architecture cnn.",
+    )
+    parser.add_argument(
+        "--cnn-base-width",
+        type=int,
+        default=None,
+        help="CNN only: override base_width (default: 12). Ignored for --architecture bigru.",
+    )
     parser.add_argument(
         "--max-train-windows",
         type=int,
@@ -181,6 +207,37 @@ def main() -> None:
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--mask-span-ratio", type=float, default=0.4)
     parser.add_argument("--mask-channel-prob", type=float, default=0.15)
+    parser.add_argument(
+        "--mask-variable-length",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Sample each span's length from the real inter-bite-pause timescale "
+        "(src/EDA/) instead of splitting --mask-span-ratio evenly across spans. "
+        "Default on. Pass --no-mask-variable-length to reproduce the original "
+        "fixed-ratio equal-split behavior (pre-existing ablation checkpoints).",
+    )
+    parser.add_argument(
+        "--mask-min-span-s",
+        type=float,
+        default=0.4,
+        help="Shortest sampled span length (s) when --mask-variable-length is on. "
+        "Default 0.4s = the p5 within-meal inter-bite gap (src/EDA/tables/summary_stats.csv).",
+    )
+    parser.add_argument(
+        "--mask-max-span-s",
+        type=float,
+        default=5.0,
+        help="Longest sampled span length (s) when --mask-variable-length is on "
+        "(clipped to the window length regardless). Default 5.0s = the p75 "
+        "within-meal inter-bite gap.",
+    )
+    parser.add_argument(
+        "--early-stop-patience",
+        type=int,
+        default=7,
+        help="Stop pretraining once val_loss hasn't improved for this many consecutive "
+        "epochs (0 disables early stopping -- always run all --epochs).",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default=None)
     args = parser.parse_args()
@@ -193,7 +250,10 @@ def main() -> None:
     print(f"  Pretext task : {args.pretext_task}")
     print(f"  Dataset      : {args.dataset or 'all'}")
     print(f"  Device       : {device}")
-    print(f"  Epochs       : {args.epochs}  |  Batch size: {args.batch_size}  |  LR: {args.lr}")
+    print(
+        f"  Epochs       : {args.epochs} (early-stop patience={args.early_stop_patience or 'off'})  |  "
+        f"Batch size: {args.batch_size}  |  LR: {args.lr}"
+    )
     print(f"{'=' * 60}")
 
     train_index = load_index(
@@ -222,17 +282,37 @@ def main() -> None:
         f"{val_index['participant'].nunique()} participants"
     )
 
+    # Resolved model kwargs: start from the architecture's ablation-fixed
+    # defaults, then apply any explicit CLI overrides -- so the ORIGINAL
+    # 8-way ablation remains exactly reproducible (no override -> identical
+    # behavior), while a hyperparameter sweep can now vary encoder capacity
+    # at all, which previously had no CLI path in or out.
+    model_kwargs = dict(MODEL_KWARGS[args.architecture])
+    if args.architecture == "bigru":
+        if args.hidden_size is not None:
+            model_kwargs["hidden_size"] = args.hidden_size
+        if args.num_layers is not None:
+            model_kwargs["num_layers"] = args.num_layers
+        if args.encoder_dropout is not None:
+            model_kwargs["dropout"] = args.encoder_dropout
+    elif args.architecture == "cnn" and args.cnn_base_width is not None:
+        model_kwargs["base_width"] = args.cnn_base_width
+
     model = ARCHITECTURES[args.architecture](
-        n_channels=len(SENSOR_CHANNELS), **MODEL_KWARGS[args.architecture]
+        n_channels=len(SENSOR_CHANNELS), **model_kwargs
     ).to(device)
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"  Params: {n_params:,}")
+    print(f"  Params: {n_params:,}  |  model_kwargs: {model_kwargs}")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     mask_kwargs = {
         "mode": args.pretext_task,
         "span_mask_ratio": args.mask_span_ratio,
         "channel_mask_prob": args.mask_channel_prob,
+        "fs": TARGET_HZ,
+        "min_span_s": args.mask_min_span_s,
+        "max_span_s": args.mask_max_span_s,
+        "variable_length": args.mask_variable_length,
     }
 
     # Val loader: sorted by segment so the LRU cache never thrashes.
@@ -271,12 +351,17 @@ def main() -> None:
                 "n_val_windows": len(val_index),
                 "mask_span_ratio": args.mask_span_ratio,
                 "mask_channel_prob": args.mask_channel_prob,
+                "mask_variable_length": args.mask_variable_length,
+                "mask_min_span_s": args.mask_min_span_s,
+                "mask_max_span_s": args.mask_max_span_s,
+                "early_stop_patience": args.early_stop_patience,
                 "seed": args.seed,
                 "device": str(device),
-                **{f"model_kwarg_{k}": v for k, v in MODEL_KWARGS[args.architecture].items()},
+                **{f"model_kwarg_{k}": v for k, v in model_kwargs.items()},
             }
         )
 
+        epochs_since_improvement = 0
         for epoch in range(args.epochs):
             t0 = time.time()
             print(f"Epoch {epoch + 1}/{args.epochs}  [{args.architecture}]")
@@ -320,6 +405,7 @@ def main() -> None:
 
             if val_m["loss"] < best_val_loss:
                 best_val_loss = val_m["loss"]
+                epochs_since_improvement = 0
                 ckpt_path = args.checkpoint_dir / f"{args.architecture}_{args.pretext_task}_best.pt"
                 torch.save(
                     {
@@ -327,13 +413,22 @@ def main() -> None:
                         "architecture": args.architecture,
                         "pretext_task": args.pretext_task,
                         "window_len": window_len,
-                        "model_kwargs": MODEL_KWARGS[args.architecture],
+                        "model_kwargs": model_kwargs,
+                        "mask_kwargs": mask_kwargs,
                         "epoch": epoch,
                         "val_loss": best_val_loss,
                     },
                     ckpt_path,
                 )
                 print(f"  ✓ New best val_loss={best_val_loss:.4f}  →  {ckpt_path}")
+            else:
+                epochs_since_improvement += 1
+                if args.early_stop_patience > 0 and epochs_since_improvement >= args.early_stop_patience:
+                    print(
+                        f"\n  Early stopping: val_loss hasn't improved for "
+                        f"{epochs_since_improvement} epochs (patience={args.early_stop_patience})."
+                    )
+                    break
 
         log_metrics({"best_val_loss": best_val_loss})
         history_path = args.checkpoint_dir / f"{args.architecture}_{args.pretext_task}_history.json"
