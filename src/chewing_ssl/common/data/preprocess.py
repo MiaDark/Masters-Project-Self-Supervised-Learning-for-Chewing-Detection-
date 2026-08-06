@@ -136,6 +136,59 @@ def apply_global_stats(df: pd.DataFrame, stats: dict, eps: float = 1e-8) -> pd.D
     return out
 
 
+def fit_minmax_stats(
+    segments: list[pd.DataFrame],
+    channels: list[str] = SENSOR_CHANNELS,
+    lower_pct: float = 1.0,
+    upper_pct: float = 99.0,
+) -> dict:
+    """Per-channel (lo, hi) bounds, pooled across every segment of ONE
+    recording (all its gap-bounded segments combined) -- the fit population
+    for per-recording min-max normalization to [-1, 1].
+
+    Unlike `fit_global_stats`, this is never pooled ACROSS recordings/
+    participants -- each recording supplies and consumes its own bounds, so
+    there's no train/val/test split dependency and no decision-003 leakage
+    concern to guard against (nothing crosses a file boundary).
+
+    `lower_pct`/`upper_pct` (default 1st/99th percentile), not the literal
+    min/max: a direct check across all 2650 (recording, channel) pairs in
+    this project's raw data found some recordings (concentrated in
+    Spectacle_NonMeal's nav channels, both raw and derivative) where a
+    handful of samples -- a single sensor glitch amplified by np.gradient
+    into a derivative spike -- inflate the true range up to ~460x beyond
+    where 98% of the actual signal sits. Literal min/max would compress the
+    entire real signal in those recordings to near-zero after scaling;
+    percentile-based bounds are robust to that while still being a plain
+    min-max-style scaling in spirit. See `apply_minmax_stats` for the
+    matching clip (percentile bounds don't cover the tails by construction,
+    so values beyond them must be clipped to stay within [-1, 1]).
+    """
+    stats = {}
+    for c in channels:
+        values = np.concatenate([seg[c].to_numpy() for seg in segments if c in seg.columns])
+        lo, hi = np.percentile(values, [lower_pct, upper_pct])
+        stats[c] = {"lo": float(lo), "hi": float(hi), "lower_pct": lower_pct, "upper_pct": upper_pct}
+    return stats
+
+
+def apply_minmax_stats(df: pd.DataFrame, stats: dict, eps: float = 1e-8) -> pd.DataFrame:
+    """Rescale each channel to [-1, 1] via its own (lo, hi) bounds:
+    `2*(x-lo)/(hi-lo+eps) - 1`, then clip to [-1, 1] -- values outside the
+    fitted [lo, hi] range (expected: `fit_minmax_stats` uses percentile
+    bounds, not the literal extremes, so ~1% of samples on each tail fall
+    outside by construction) are clamped rather than left to blow past the
+    intended range. `eps` guards a degenerate (hi == lo) channel, though
+    none were observed in this project's data."""
+    out = df.copy()
+    for c, s in stats.items():
+        if c in out.columns:
+            span = s["hi"] - s["lo"]
+            scaled = 2.0 * (out[c] - s["lo"]) / (span + eps) - 1.0
+            out[c] = scaled.clip(-1.0, 1.0)
+    return out
+
+
 def resample_recording(
     dataset: str,
     path: Path,
