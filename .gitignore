@@ -56,3 +56,8 @@ processed/
 reports/
 raw_unscaled/
 checkpoints_masked_normal_06th july
+EDA/
+interim_normalized_80_10_10/
+interim_normalized_per_file/
+processed_80_10_10/
+processed_per_file/
