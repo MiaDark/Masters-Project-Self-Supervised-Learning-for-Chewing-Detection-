@@ -1,6 +1,9 @@
 """Post-processing pipeline for per-timestep chewing predictions.
 
 Applied in order:
+  0. Smoothing (opt-in)      — short moving average, for a noisier per-timestep
+                                 probability trace than window-averaging alone
+                                 already smooths (see `smooth_probs`)
   1. Hysteresis thresholding  — start a bout at `high`, end it at `low`
   2. Gap filling              — bridge gaps shorter than `max_gap_s` between bouts
   3. Bout splitting           — cut bouts that are too long, or that dip through
@@ -15,14 +18,48 @@ additional step after it. See its docstring for why: classifier probability
 from window-averaged predictions can plateau smoothly across an entire
 multi-bite eating episode (window overlap washes out the pauses between
 bites) even where the raw sensor signal still shows them clearly.
+
+`PostprocessConfig` + `apply_full_postprocessing` bundle the WHOLE recipe
+(smoothing -> postprocess -> envelope-split -> min-duration) as ONE shared
+call, so every script that needs "probs + envelope -> final binary bout
+array" (both evaluate_bouts.py scripts, both plot_predictions.py scripts,
+compare_bites.py) calls the same function instead of five separate
+near-identical re-implementations of the same five-step recipe.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
+import pandas as pd
 from scipy.signal import find_peaks
 
 FS = 50.0  # Hz
+
+# The two channels compute_envelope/split_bouts_by_envelope operate on --
+# previously redefined independently in 4+ call sites; one definition here.
+ENVELOPE_CHANNELS = ["nav_x_left_temple", "nav_y_left_temple"]
+
+
+def smooth_probs(probs: np.ndarray, fs: float = FS, window_s: float = 0.0) -> np.ndarray:
+    """Centered moving-average smoothing of a per-timestep probability trace,
+    NaN-aware (an uncovered gap doesn't leak a false average into its
+    neighbors). `window_s=0` is a no-op (returns `probs` unchanged), so this
+    is always safe to call.
+
+    Motivation: classical ML's probability trace is implicitly pre-smoothed
+    by upscale_predictions.py averaging overlapping windows; a model that
+    predicts non-overlapping windows directly (masked-reconstruction SSL) has
+    no equivalent smoothing, and empirically produces more, shorter spurious
+    bouts under hysteresis as a result (see the bite-by-bite comparison in
+    chewing_ssl.common.evaluation.pipeline). A short moving average gives it
+    a comparable degree of smoothing before hysteresis ever runs.
+    """
+    if window_s <= 0:
+        return probs
+    window = max(1, int(round(window_s * fs)))
+    return pd.Series(probs).rolling(window, center=True, min_periods=1).mean().to_numpy()
 
 
 def apply_hysteresis(probs: np.ndarray, high: float = 0.65, low: float = 0.35) -> np.ndarray:
@@ -246,4 +283,71 @@ def postprocess(
     if max_dur_s is not None or valley_thresh is not None:
         binary = split_bouts(binary, probs, fs=fs, max_dur_s=max_dur_s, valley_thresh=valley_thresh)
     binary = remove_short_bouts(binary, fs=fs, min_dur_s=min_dur_s)
+    return binary
+
+
+@dataclass
+class PostprocessConfig:
+    """The full, shared postprocessing recipe -- one definition used by every
+    script that turns a per-timestep probability trace into final bouts
+    (both evaluate_bouts.py scripts, both plot_predictions.py scripts,
+    compare_bites.py). Defaults are the tuned values docs/classical_ml.md
+    §6a-§6c converged on, shared by both pipelines (docs/ssl_masked.md §4).
+
+    `smooth_window_s` (default 0.0, off) is the one addition beyond what
+    either pipeline used before: a short moving-average applied to `probs`
+    before hysteresis, primarily to help a pipeline whose probability trace
+    isn't already smoothed by overlapping-window averaging (masked-
+    reconstruction SSL) -- see `smooth_probs`.
+    """
+
+    high: float = 0.75
+    low: float = 0.52
+    max_gap_s: float = 1.0
+    min_dur_s: float = 2.0
+    max_dur_s: float | None = 35.0
+    valley_thresh: float | None = 0.35
+    envelope_split: bool = True
+    envelope_window_s: float = 1.5
+    envelope_min_piece_dur: float = 8.0
+    envelope_prominence: float = 2.5
+    smooth_window_s: float = 0.0
+    fs: float = FS
+
+
+def apply_full_postprocessing(
+    probs: np.ndarray, envelope: np.ndarray | None, cfg: PostprocessConfig
+) -> np.ndarray:
+    """probs (+ envelope, if cfg.envelope_split) -> final binary bout array.
+
+    The full shared recipe: smoothing -> hysteresis -> gap-fill -> [duration/
+    valley split] -> envelope-split -> min-duration. `envelope` may be `None`
+    iff `cfg.envelope_split` is `False`. This is the ONE place this five-step
+    sequence is implemented -- every caller (both evaluate_bouts.py scripts,
+    both plot_predictions.py scripts, compare_bites.py) calls this instead of
+    re-composing the five steps themselves.
+    """
+    if cfg.envelope_split and envelope is None:
+        raise ValueError("cfg.envelope_split=True requires an envelope array.")
+
+    smoothed = smooth_probs(probs, fs=cfg.fs, window_s=cfg.smooth_window_s)
+    binary = postprocess(
+        smoothed,
+        high=cfg.high,
+        low=cfg.low,
+        max_gap_s=cfg.max_gap_s,
+        min_dur_s=cfg.min_dur_s,
+        max_dur_s=cfg.max_dur_s,
+        valley_thresh=cfg.valley_thresh,
+        fs=cfg.fs,
+    )
+    if cfg.envelope_split:
+        binary = split_bouts_by_envelope(
+            binary,
+            envelope,
+            fs=cfg.fs,
+            min_piece_dur_s=cfg.envelope_min_piece_dur,
+            prominence_frac=cfg.envelope_prominence,
+        )
+        binary = remove_short_bouts(binary, fs=cfg.fs, min_dur_s=cfg.min_dur_s)
     return binary
