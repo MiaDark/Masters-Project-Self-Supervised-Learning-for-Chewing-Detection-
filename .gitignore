@@ -60,4 +60,9 @@ EDA/
 interim_normalized_80_10_10/
 interim_normalized_per_file/
 processed_80_10_10/
+processed_80_10_10_clipped/
 processed_per_file/
+interim_clipped/
+interim_normalized_80_10_10_clipped/
+interim_normalized_per_file_clipped/
+processed_80_10_10_per_file_clipped/
