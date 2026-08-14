@@ -4,15 +4,24 @@ chewing_ssl.ssl.masked.evaluate_bouts).
 
 A bout is a contiguous block of timesteps labelled/predicted as "chewing".
 
-Two matching strategies are provided:
+Three matching/alignment strategies are provided:
   - `match_bouts`: IoU overlap >= a threshold. Penalizes a bout that is
     onset/offset-shifted from ground truth even if both endpoints are only
     off by a fraction of a second, since a short bout's IoU is very
-    sensitive to small absolute shifts.
+    sensitive to small absolute shifts. Greedy tightest-IoU-first, one-to-one.
   - `match_bouts_tolerant`: onset and offset within `tolerance_s` seconds of
     ground truth, independent of bout length. Matches "detect the same
     event, roughly at the same time" rather than "detect the same event,
-    at pixel-perfect boundaries" -- see docs/classical_ml.md.
+    at pixel-perfect boundaries" -- see docs/classical_ml.md. Greedy
+    tightest-total-deviation-first, one-to-one.
+  - `align_bouts_sequential`: NOT a one-to-one matcher -- groups GT and
+    predicted bouts into maximal temporally-overlapping clusters (a single
+    left-to-right sweep, no scoring/sorting) and labels each cluster
+    match/merge/split/tangle/missed/false_alarm. Both `match_bouts*`
+    functions answer "how many bouts were correctly detected"; this answers
+    "when detection fails, what did it fail *like*" -- a bite lost inside a
+    merge is a structurally different failure from one simply never
+    detected, even though both count as an FN under match_bouts*.
 """
 
 from __future__ import annotations
@@ -87,6 +96,68 @@ def match_bouts(gt: list[dict], pred: list[dict], iou_thresh: float = 0.3) -> di
         "fn": len(gt) - len(matches),
         "matches": matches,
     }
+
+
+def align_bouts_sequential(gt: list[dict], pred: list[dict]) -> list[dict]:
+    """Group GT and predicted bouts into maximal temporally-overlapping
+    clusters via a single left-to-right sweep (both lists are already
+    time-sorted, as `extract_bouts` produces them) -- classic "merge
+    overlapping intervals," tagging each interval by its source list.
+
+    Every GT bout and every predicted bout ends up in exactly one cluster.
+    Each cluster is labelled by how many GT (n_gt) and predicted (n_pred)
+    bouts it contains:
+      - n_gt=0            -> "false_alarm"  (isolated predicted bout)
+      - n_pred=0           -> "missed"       (isolated GT bout)
+      - n_gt=1, n_pred=1  -> "match"         (clean one-to-one overlap)
+      - n_gt>=2, n_pred=1 -> "merge"         (one predicted bout spans several real bites)
+      - n_gt=1, n_pred>=2 -> "split"         (one real bite covered by several predicted bouts)
+      - n_gt>=2, n_pred>=2 -> "tangle"       (a chain of several GT and several predicted
+                                               bouts all overlapping each other -- typically
+                                               a dense run of closely-spaced real bites where
+                                               boundary noise has decoupled bite count from
+                                               predicted-bout count on both sides at once)
+
+    Returns a list of dicts: {"label", "n_gt", "n_pred", "cluster"} where
+    `cluster` is [(("gt"|"pred"), original_index, bout_dict), ...] in time
+    order -- kept around so callers (e.g. the per-bite ledger) can look up
+    which cluster a specific GT/predicted bout id landed in.
+    """
+    tagged = sorted(
+        [("gt", i, b) for i, b in enumerate(gt)] + [("pred", i, b) for i, b in enumerate(pred)],
+        key=lambda t: t[2]["start_s"],
+    )
+    raw_clusters: list[list[tuple[str, int, dict]]] = []
+    cluster: list[tuple[str, int, dict]] = []
+    cluster_end = -1.0
+    for tag, idx, b in tagged:
+        if cluster and b["start_s"] > cluster_end:
+            raw_clusters.append(cluster)
+            cluster = []
+            cluster_end = -1.0
+        cluster.append((tag, idx, b))
+        cluster_end = max(cluster_end, b["end_s"])
+    if cluster:
+        raw_clusters.append(cluster)
+
+    events = []
+    for cluster in raw_clusters:
+        n_gt = sum(1 for t, _, _ in cluster if t == "gt")
+        n_pred = sum(1 for t, _, _ in cluster if t == "pred")
+        if n_gt == 0:
+            label = "false_alarm"
+        elif n_pred == 0:
+            label = "missed"
+        elif n_gt == 1 and n_pred == 1:
+            label = "match"
+        elif n_gt >= 2 and n_pred == 1:
+            label = "merge"
+        elif n_gt == 1 and n_pred >= 2:
+            label = "split"
+        else:
+            label = "tangle"
+        events.append({"label": label, "n_gt": n_gt, "n_pred": n_pred, "cluster": cluster})
+    return events
 
 
 def _boundary_deviation(gt: dict, pred: dict) -> float:
