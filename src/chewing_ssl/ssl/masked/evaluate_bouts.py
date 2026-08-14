@@ -1,11 +1,15 @@
 """Bout-by-bout evaluation of fine-tuned chewing detection model.
 
 For each test participant this script:
-  1. Runs sliding-window inference over the full recording
+  1. Runs sliding-window inference over the full recording (the ONE
+     pipeline-specific step -- everything after this is shared code)
   2. Saves per-timestep predictions to  checkpoints/predictions/<participant>.csv
-  3. Extracts chewing bouts from both predictions and ground truth
-  4. Matches predicted bouts to GT bouts using Intersection-over-Union (IoU)
-  5. Prints per-participant and aggregate bout-level metrics
+  3. Postprocesses the probability trace and extracts chewing bouts from
+     both predictions and ground truth
+  4. Matches predicted bouts to GT bouts under BOTH IoU and onset/offset-
+     tolerance matching (always both -- see --summary-csv)
+  5. Prints per-participant and aggregate bout-level metrics, and (--out-csv)
+     writes a per-bite ledger
 
 Bout-level metrics reported:
   Precision  = TP / (TP + FP)   — fraction of predicted bouts that are real
@@ -15,17 +19,27 @@ Bout-level metrics reported:
   Onset lag  — median (predicted centre − GT centre) in seconds; negative = early
   Duration Δ — median (predicted duration − GT duration) in seconds
 
-A bout is a contiguous block of timesteps labelled/predicted as "chewing".
-Short fragments < min_bout_duration are discarded (default 0.5 s).
-A GT bout and a predicted bout are considered a match when IoU ≥ iou_thresh (default 0.3).
+Postprocessing (applying the shared recipe, matching bouts, aggregating
+results, building the ledger/summary row) is shared code
+(`chewing_ssl.common.evaluation.postprocess`/`pipeline`), identical to what
+`chewing_ssl.classical_ml.evaluate_bouts` and
+`chewing_ssl.common.evaluation.compare_bites` use, so the two pipelines'
+numbers are directly comparable. The one deliberate difference:
+`--smooth-window-s` defaults to 2.0s here (vs. classical ML's 0.0) --
+this script's per-timestep probability has no equivalent to classical ML's
+overlap-averaging smoothing, and empirically (see
+`chewing_ssl.common.evaluation.compare_bites`'s module docstring) a 2.0s
+moving average closes a real gap: F1 0.674->0.731 (IoU mode), 0.489->0.527
+(tolerance mode) on span_bigru_w200.
 
 Run from the project root:
-  python -m chewing_ssl.ssl.masked.evaluate_bouts
+  python -m chewing_ssl.ssl.masked.evaluate_bouts --checkpoint <path>
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import json
 from pathlib import Path
@@ -36,19 +50,24 @@ import torch
 
 from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS
 from chewing_ssl.common.data.windowing import TARGET_HZ, WINDOW_LEN
-from chewing_ssl.common.evaluation.bouts import extract_bouts, match_bouts, match_bouts_tolerant
-from chewing_ssl.common.evaluation.postprocess import (
-    compute_envelope,
-    postprocess,
-    remove_short_bouts,
-    split_bouts_by_envelope,
+from chewing_ssl.common.evaluation.pipeline import (
+    add_match_args,
+    add_postprocess_args,
+    aggregate_alignment,
+    aggregate_dual_mode,
+    append_summary_row,
+    build_summary_row,
+    evaluate_recording,
+    ledger_rows_for_recording,
+    postprocess_config_from_args,
 )
-from chewing_ssl.common.evaluation.reporting import fmt as _fmt
+from chewing_ssl.common.evaluation.postprocess import FS, compute_envelope
 from chewing_ssl.common.evaluation.reporting import print_matched_pairs, print_summary_table
+from chewing_ssl.common.evaluation.reporting import print_alignment_summary, print_worst_offenders
+from chewing_ssl.common.evaluation.reporting import capture_console_report, save_console_report
 from chewing_ssl.ssl.masked.finetune import ChewingDetector
 from chewing_ssl.ssl.models import ARCHITECTURES
 
-FS = 50.0  # Hz
 ENVELOPE_CHANNELS = ["nav_x_left_temple", "nav_y_left_temple"]
 
 
@@ -66,7 +85,11 @@ def load_finetuned_model(path: Path) -> tuple[ChewingDetector, dict]:
         )
     architecture = state["architecture"]
     model_kwargs = state.get("model_kwargs", {})
-    encoder = ARCHITECTURES[architecture](n_channels=len(SENSOR_CHANNELS), **model_kwargs)
+    # Older checkpoints (saved before channel-subset training existed) don't
+    # have a "channels" key -- fall back to the full SENSOR_CHANNELS, which
+    # is what they were always trained on.
+    channels = state.get("channels", SENSOR_CHANNELS)
+    encoder = ARCHITECTURES[architecture](n_channels=len(channels), **model_kwargs)
     model = ChewingDetector(
         encoder,
         architecture,
@@ -82,6 +105,7 @@ def load_finetuned_model(path: Path) -> tuple[ChewingDetector, dict]:
         "val_f1": state.get("val_f1", float("nan")),
         "phase": state.get("phase"),
         "epoch": state.get("epoch"),
+        "channels": channels,
     }
     return model, meta
 
@@ -111,6 +135,55 @@ def infer_recording(
     return probs
 
 
+def load_test_recordings(
+    model: ChewingDetector,
+    interim_root: Path,
+    processed_root: Path,
+    window_len: int,
+    envelope_window_s: float = 1.5,
+    dataset: str | None = None,
+    channels: list[str] = SENSOR_CHANNELS,
+) -> list[dict]:
+    """Run inference once per `finetune_test` recording, returning
+    `{dataset, tag, segment, participant, gt, probs, envelope}` dicts -- the
+    expensive, postprocessing-INDEPENDENT step (model inference), factored
+    out of `evaluate_participant` so a postprocessing sweep
+    (`chewing_ssl.common.evaluation.sweep`) can reuse these same cached
+    arrays across many `PostprocessConfig` combos without re-running
+    inference per combo. Deliberately skips per-timestep CSV writing and any
+    particular postprocessing config -- callers that also want those (e.g.
+    `evaluate_participant`) still do that themselves."""
+    idx = pd.read_parquet(processed_root / "index" / "finetune_test.parquet")
+    if dataset:
+        idx = idx[idx["dataset"] == dataset]
+    recs = sorted(idx[["dataset", "tag"]].drop_duplicates().itertuples(index=False))
+
+    recordings = []
+    for ds, tag in recs:
+        seg_dir = interim_root / ds / tag
+        for seg_path in sorted(seg_dir.glob("segment_*.parquet")):
+            df = pd.read_parquet(seg_path)
+            if "label" not in df.columns:
+                continue
+            x = df[channels].to_numpy(dtype=np.float32).T
+            y = df["label"].to_numpy(dtype=np.float32)
+            probs = infer_recording(model, x, window_len=window_len)
+            signal_mag = np.sqrt((df[ENVELOPE_CHANNELS].to_numpy(dtype=np.float64) ** 2).sum(axis=1))
+            envelope = compute_envelope(signal_mag, fs=FS, window_s=envelope_window_s)
+            recordings.append(
+                {
+                    "dataset": ds,
+                    "tag": tag,
+                    "segment": seg_path.stem,
+                    "participant": f"{ds}/{tag}/{seg_path.stem}",
+                    "gt": y.astype(bool),
+                    "probs": probs,
+                    "envelope": envelope,
+                }
+            )
+    return recordings
+
+
 # ── Per-participant evaluation ─────────────────────────────────────────────────
 
 
@@ -119,22 +192,14 @@ def evaluate_participant(
     seg_path: Path,
     participant: str,
     pred_dir: Path,
-    iou_thresh: float,
+    cfg,
     min_bout_dur: float,
-    threshold: float,
-    post_high: float,
-    post_low: float,
-    post_max_gap_s: float,
-    post_min_dur_s: float,
+    match_mode: str,
+    iou_thresh: float,
+    tolerance_s: float,
     window_len: int = WINDOW_LEN,
-    match_mode: str = "iou",
-    tolerance_s: float = 5.0,
-    post_max_dur_s: float | None = None,
-    post_valley: float | None = None,
-    envelope_split: bool = False,
-    envelope_window_s: float = 1.5,
-    envelope_min_piece_dur_s: float = 8.0,
-    envelope_prominence_frac: float = 2.5,
+    threshold: float = 0.5,
+    channels: list[str] = SENSOR_CHANNELS,
 ) -> dict | None:
     if not seg_path.exists():
         print(f"  [skip] segment not found: {seg_path}")
@@ -145,46 +210,24 @@ def evaluate_participant(
         print(f"  [skip] no label column in {seg_path}")
         return None
 
-    x = df[SENSOR_CHANNELS].to_numpy(dtype=np.float32).T  # (C, N)
+    x = df[channels].to_numpy(dtype=np.float32).T  # (C, N)
     y = df["label"].to_numpy(dtype=np.float32)  # (N,)
-
     probs = infer_recording(model, x, window_len=window_len)
 
-    # Post-process: hysteresis → gap fill → [duration/valley split] → min duration,
-    # same pipeline and (by default) same tuned parameters as
-    # chewing_ssl.classical_ml.evaluate_bouts, for a direct comparison.
-    preds_post = postprocess(
-        probs,
-        high=post_high,
-        low=post_low,
-        max_gap_s=post_max_gap_s,
-        min_dur_s=post_min_dur_s,
-        max_dur_s=post_max_dur_s,
-        valley_thresh=post_valley,
-    )
-    if envelope_split:
-        signal_mag = np.sqrt(
-            (df[ENVELOPE_CHANNELS].to_numpy(dtype=np.float64) ** 2).sum(axis=1)
-        )
-        envelope = compute_envelope(signal_mag, fs=FS, window_s=envelope_window_s)
-        preds_post = split_bouts_by_envelope(
-            preds_post,
-            envelope,
-            fs=FS,
-            min_piece_dur_s=envelope_min_piece_dur_s,
-            prominence_frac=envelope_prominence_frac,
-        )
-        preds_post = remove_short_bouts(preds_post, fs=FS, min_dur_s=post_min_dur_s)
-    preds_post = preds_post.astype(np.float32)
+    envelope = None
+    if cfg.envelope_split:
+        signal_mag = np.sqrt((df[ENVELOPE_CHANNELS].to_numpy(dtype=np.float64) ** 2).sum(axis=1))
+        envelope = compute_envelope(signal_mag, fs=FS, window_s=cfg.envelope_window_s)
 
-    # Raw threshold prediction (for CSV)
-    preds_raw = (probs >= threshold).astype(np.float32)
-    preds_raw[np.isnan(probs)] = 0.0
+    rec = {"participant": participant, "gt": y.astype(bool), "probs": probs, "envelope": envelope}
+    result = evaluate_recording(rec, cfg, min_bout_dur, match_mode, iou_thresh, tolerance_s)
 
     # ── Save per-timestep predictions ──
     # participant may be "dataset/tag[/segment_NN]" (main()'s recording label),
     # which doubles as a safe relative subpath -- write_text-style flatten
     # would collide across datasets that reuse participant ids otherwise.
+    preds_raw = (np.nan_to_num(probs, nan=0.0) >= threshold).astype(np.float32)
+    preds_post = result["binary"].astype(np.float32)
     out_csv = pred_dir / f"{participant}.csv"
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     with open(out_csv, "w", newline="") as f:
@@ -195,48 +238,10 @@ def evaluate_participant(
                 [f"{i / FS:.4f}", "" if np.isnan(pr) else f"{pr:.6f}", int(raw), int(post), int(gt)]
             )
 
-    # ── Bout extraction (on post-processed predictions) ──
-    gt_bouts = extract_bouts(y.astype(bool), min_dur=min_bout_dur)
-    pred_bouts = extract_bouts(preds_post.astype(bool), min_dur=min_bout_dur)
-
-    # Compute BOTH match modes always (cheap -- bout lists are short), so the
-    # results summary CSV always has both regardless of which mode drives
-    # this run's console table.
-    iou_result = match_bouts(gt_bouts, pred_bouts, iou_thresh=iou_thresh)
-    tol_result = match_bouts_tolerant(gt_bouts, pred_bouts, tolerance_s=tolerance_s)
-    result = tol_result if match_mode == "tolerance" else iou_result
-
-    def _stats(r: dict) -> dict:
-        tp, fp, fn = r["tp"], r["fp"], r["fn"]
-        prec = tp / (tp + fp) if (tp + fp) > 0 else float("nan")
-        rec = tp / (tp + fn) if (tp + fn) > 0 else float("nan")
-        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else float("nan")
-        ious = [m["iou"] for m in r["matches"]]
-        onset_lag = [(m["pred"]["start_s"] - m["gt"]["start_s"]) for m in r["matches"]]
-        dur_delta = [(m["pred"]["duration_s"] - m["gt"]["duration_s"]) for m in r["matches"]]
-        return {
-            "tp": tp,
-            "fp": fp,
-            "fn": fn,
-            "precision": prec,
-            "recall": rec,
-            "f1": f1,
-            "median_iou": float(np.median(ious)) if ious else float("nan"),
-            "median_onset_lag_s": float(np.median(onset_lag)) if onset_lag else float("nan"),
-            "median_dur_delta_s": float(np.median(dur_delta)) if dur_delta else float("nan"),
-        }
-
-    displayed = _stats(result)
-    summary = {
-        "participant": participant,
-        "n_gt_bouts": len(gt_bouts),
-        "n_pred_bouts": len(pred_bouts),
-        **displayed,
-        "matches": result["matches"],
-        "iou_stats": _stats(iou_result),
-        "tolerance_stats": _stats(tol_result),
-    }
-    return summary
+    result["_iou_thresh"] = iou_thresh
+    result["_tolerance_s"] = tolerance_s
+    result["_min_dur"] = min_bout_dur
+    return result
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -262,93 +267,33 @@ def main() -> None:
         "--dataset", default=None, help="Restrict to one dataset. Default: all datasets."
     )
     parser.add_argument("--pred-dir", type=Path, default=Path("checkpoints/predictions"))
+    parser.add_argument("--threshold", type=float, default=0.5, help="Raw probability threshold saved to CSV.")
+    add_postprocess_args(parser)
+    # Override the shared --smooth-window-s default (0.0) for this pipeline --
+    # see module docstring for why 2.0s is the validated default here specifically.
+    for action in parser._actions:
+        if action.dest == "smooth_window_s":
+            action.default = 2.0
+            action.help = (
+                "Moving-average window (s) applied to probs before hysteresis. "
+                "Default 2.0s for THIS pipeline (validated -- see module docstring); "
+                "pass 0.0 to disable. Classical ML's own default is 0.0 (already "
+                "smoothed by overlapping-window averaging)."
+            )
+    add_match_args(parser, default_match_mode="iou")
     parser.add_argument(
-        "--match-mode",
-        choices=["iou", "tolerance"],
-        default="iou",
-        help="How a predicted bout is credited against a ground-truth bout (default: iou, "
-        "chewing_ssl.classical_ml.evaluate_bouts's 'best-measured combination' when paired "
-        "with duration-bounded postprocessing; that script itself defaults to tolerance).",
+        "--show-pairs", action="store_true", help="Also print individual matched pairs per participant"
     )
     parser.add_argument(
-        "--tolerance-s",
-        type=float,
-        default=5.0,
-        help="--match-mode tolerance: max onset/offset deviation in seconds (default 5.0).",
+        "--out-csv",
+        type=Path,
+        default=None,
+        help="Write the full per-bite ledger (one row per GT/predicted bout, tagged "
+        "detected/missed/false_alarm) here, e.g. checkpoints/masked_bout_ledger.csv. "
+        "Default: skip (kept opt-in since this script already saves full per-timestep "
+        "predictions to --pred-dir).",
     )
-    parser.add_argument(
-        "--iou-thresh",
-        type=float,
-        default=0.3,
-        help="--match-mode iou: minimum IoU to count a predicted bout as a TP (default 0.3)",
-    )
-    parser.add_argument(
-        "--min-bout-dur",
-        type=float,
-        default=0.5,
-        help="Minimum bout duration in seconds for bout matching (default 0.5)",
-    )
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=0.5,
-        help="Raw probability threshold saved to CSV (default 0.5)",
-    )
-    # Post-processing args -- defaults match chewing_ssl.classical_ml.evaluate_bouts's
-    # tuned values (docs/classical_ml.md §6c) for a direct comparison.
-    parser.add_argument(
-        "--post-high",
-        type=float,
-        default=0.75,
-        help="Hysteresis upper threshold — starts a bout (default 0.75)",
-    )
-    parser.add_argument(
-        "--post-low",
-        type=float,
-        default=0.52,
-        help="Hysteresis lower threshold — ends a bout (default 0.52)",
-    )
-    parser.add_argument(
-        "--post-max-gap",
-        type=float,
-        default=1.0,
-        help="Maximum gap in seconds to bridge between nearby bouts (default 1.0)",
-    )
-    parser.add_argument(
-        "--post-max-dur",
-        type=float,
-        default=35.0,
-        help="Split postprocessed bouts longer than this at their lowest-probability point "
-        "(default 35.0s; real bite bouts run ~3-17s). Pass a negative value to disable.",
-    )
-    parser.add_argument(
-        "--post-valley",
-        type=float,
-        default=0.35,
-        help="Split postprocessed bouts at any interior probability dip below this, "
-        "regardless of duration (default 0.35). Pass a negative value to disable.",
-    )
-    parser.add_argument(
-        "--envelope-split",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Additionally split bouts using a raw-signal (nav_x/nav_y) activity envelope "
-        "-- see docs/classical_ml.md §6b/§6c. Default on.",
-    )
-    parser.add_argument("--envelope-window-s", type=float, default=1.5)
-    parser.add_argument("--envelope-min-piece-dur", type=float, default=8.0)
-    parser.add_argument("--envelope-prominence", type=float, default=2.5)
-    parser.add_argument(
-        "--post-min-dur",
-        type=float,
-        default=2.0,
-        help="Minimum bout duration in seconds after post-processing (default 2.0)",
-    )
-    parser.add_argument(
-        "--show-pairs",
-        action="store_true",
-        help="Also print individual matched pairs per participant",
-    )
+    parser.add_argument("--top-n", type=int, default=15, help="Rows in the worst-offenders console table (--out-csv only).")
     parser.add_argument(
         "--window-seconds",
         type=float,
@@ -364,14 +309,26 @@ def main() -> None:
         "the single file comparing every architecture/pretext-task/window-size combination. "
         "Pass an empty string to skip.",
     )
+    parser.add_argument(
+        "--report-path",
+        type=Path,
+        default=None,
+        help="Save the exact console report (per-recording table, glossary, alignment "
+        "breakdown, worst offenders) to this markdown file. Default: "
+        "<--pred-dir>/evaluation_report.md (kept alongside that run's own predictions, so "
+        "it can't collide with a different checkpoint's report). Pass an empty string to skip.",
+    )
     args = parser.parse_args()
 
     if not args.checkpoint.exists():
         print(f"Checkpoint not found: {args.checkpoint}")
         return
 
-    post_max_dur = args.post_max_dur if args.post_max_dur >= 0 else None
-    post_valley = args.post_valley if args.post_valley >= 0 else None
+    report_path = args.report_path
+    if report_path is None:
+        report_path = args.pred_dir / "evaluation_report.md"
+
+    cfg = postprocess_config_from_args(args)
 
     # ── Load model (architecture/pretext_task/window_len auto-detected) ──
     model, meta = load_finetuned_model(args.checkpoint)
@@ -379,6 +336,16 @@ def main() -> None:
     run_name = f"{meta['pretext_task']}_{meta['architecture']}_w{meta['window_len']}"
     window_len = int(args.window_seconds * TARGET_HZ) if args.window_seconds else meta["window_len"]
 
+    report_ctx = capture_console_report() if report_path else contextlib.nullcontext(None)
+    with report_ctx as report_buffer:
+        _run_evaluation(args, cfg, model, meta, run_name, window_len)
+
+    if report_path and report_buffer is not None:
+        save_console_report(report_buffer, report_path, title=f"Bout-by-Bout Evaluation -- {run_name}")
+        print(f"  Full console report  →  {report_path}")
+
+
+def _run_evaluation(args, cfg, model, meta, run_name, window_len) -> None:
     print("\nBout-by-Bout Evaluation")
     print("=" * 60)
     print(f"  Checkpoint   : {args.checkpoint}  [{run_name}]")
@@ -391,9 +358,9 @@ def main() -> None:
         f"({'tolerance=' + str(args.tolerance_s) + 's' if args.match_mode == 'tolerance' else 'IoU>=' + str(args.iou_thresh)})"
     )
     print(
-        f"  Post-process : hysteresis ({args.post_high}/{args.post_low})  "
-        f"gap-fill {args.post_max_gap}s  dur=[{args.post_min_dur}, {post_max_dur}]s  "
-        f"valley={post_valley}  envelope-split={args.envelope_split}"
+        f"  Post-process : hysteresis ({cfg.high}/{cfg.low})  gap-fill {cfg.max_gap_s}s  "
+        f"dur=[{cfg.min_dur_s}, {cfg.max_dur_s}]s  valley={cfg.valley_thresh}  "
+        f"envelope-split={cfg.envelope_split}  smooth={cfg.smooth_window_s}s"
     )
     print(f"  Predictions  → {args.pred_dir}/")
     print(f"  Loaded       : phase={meta['phase']}  epoch={(meta['epoch'] or 0) + 1}  val_f1={meta['val_f1']:.3f}\n")
@@ -420,121 +387,57 @@ def main() -> None:
             label = f"{dataset}/{tag}" + (f"/{seg_path.stem}" if len(seg_paths) > 1 else "")
             print(f"  Processing {label} ...", end=" ", flush=True)
             r = evaluate_participant(
-                model,
-                seg_path,
-                label,
-                args.pred_dir,
-                iou_thresh=args.iou_thresh,
-                min_bout_dur=args.min_bout_dur,
-                threshold=args.threshold,
-                post_high=args.post_high,
-                post_low=args.post_low,
-                post_max_gap_s=args.post_max_gap,
-                post_min_dur_s=args.post_min_dur,
-                window_len=window_len,
-                match_mode=args.match_mode,
-                tolerance_s=args.tolerance_s,
-                post_max_dur_s=post_max_dur,
-                post_valley=post_valley,
-                envelope_split=args.envelope_split,
-                envelope_window_s=args.envelope_window_s,
-                envelope_min_piece_dur_s=args.envelope_min_piece_dur,
-                envelope_prominence_frac=args.envelope_prominence,
+                model, seg_path, label, args.pred_dir, cfg,
+                min_bout_dur=args.min_bout_dur, match_mode=args.match_mode,
+                iou_thresh=args.iou_thresh, tolerance_s=args.tolerance_s,
+                window_len=window_len, threshold=args.threshold, channels=meta["channels"],
             )
             if r is not None:
-                r["_iou_thresh"] = args.iou_thresh
-                r["_tolerance_s"] = args.tolerance_s
-                r["_min_dur"] = args.min_bout_dur
+                r["dataset"], r["tag"], r["segment"] = dataset, tag, seg_path.stem
                 results.append(r)
                 print(
                     f"GT={r['n_gt_bouts']} bouts  Pred={r['n_pred_bouts']} bouts  "
-                    f"TP={r['tp']} FP={r['fp']} FN={r['fn']}  F1={_fmt(r['f1'])}"
+                    f"TP={r['tp']} FP={r['fp']} FN={r['fn']}  F1={r['f1']:.3f}"
                 )
 
     if results:
         print_summary_table(results, match_mode=args.match_mode)
         if args.show_pairs:
             print_matched_pairs(results)
+        print_alignment_summary(aggregate_alignment(results))
         print(f"\n  Per-timestep predictions saved to: {args.pred_dir}/")
 
+        if args.out_csv:
+            ledger_rows = []
+            for r in results:
+                ident = {k: r[k] for k in ("dataset", "tag", "segment")}
+                ident["participant"] = r["tag"]  # same convention as classical_ml's ledger
+                ledger_rows += ledger_rows_for_recording(ident, r, args.match_mode)
+            ledger = pd.DataFrame(ledger_rows)
+            print_worst_offenders(ledger, top_n=args.top_n)
+            args.out_csv.parent.mkdir(parents=True, exist_ok=True)
+            ledger.to_csv(args.out_csv, index=False)
+            print(f"\n  Full per-bite ledger ({len(ledger)} rows) -> {args.out_csv}")
+
         if args.summary_csv:
-            row = build_summary_row(run_name, meta, args.checkpoint, results)
+            dual = aggregate_dual_mode(results)
+            window_metrics = None
+            hist_path = args.checkpoint.parent / f"{run_name}_history.json"
+            if hist_path.exists():
+                hist = json.loads(hist_path.read_text())
+                window_metrics = hist.get("test_metrics", {})
+            identity = {
+                "run_name": run_name,
+                "architecture": meta["architecture"],
+                "pretext_task": meta["pretext_task"],
+                "window_len": meta["window_len"],
+                "checkpoint": str(args.checkpoint),
+            }
+            row = build_summary_row(identity, dual, window_metrics)
             append_summary_row(args.summary_csv, row)
             print(f"  Results summary row  →  {args.summary_csv}  ({row['run_name']})")
 
     print()
-
-
-# ── Results summary CSV (one row per architecture/pretext-task/window combo) ──
-
-
-def _aggregate(results: list[dict], key: str) -> dict:
-    """Sum tp/fp/fn across every recording's results[key] (either 'iou_stats'
-    or 'tolerance_stats') and recompute overall precision/recall/f1 -- the
-    same aggregation print_summary_table does, just for a specific mode."""
-    tp = sum(r[key]["tp"] for r in results)
-    fp = sum(r[key]["fp"] for r in results)
-    fn = sum(r[key]["fn"] for r in results)
-    prec = tp / (tp + fp) if (tp + fp) > 0 else float("nan")
-    rec = tp / (tp + fn) if (tp + fn) > 0 else float("nan")
-    f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else float("nan")
-    ious = [r[key]["median_iou"] for r in results if not np.isnan(r[key]["median_iou"])]
-    return {
-        "tp": tp,
-        "fp": fp,
-        "fn": fn,
-        "precision": prec,
-        "recall": rec,
-        "f1": f1,
-        "median_iou": float(np.median(ious)) if ious else float("nan"),
-    }
-
-
-def build_summary_row(run_name: str, meta: dict, checkpoint: Path, results: list[dict]) -> dict:
-    iou_agg = _aggregate(results, "iou_stats")
-    tol_agg = _aggregate(results, "tolerance_stats")
-
-    # Window-level test metrics come from finetune.py's history JSON, which
-    # sits alongside the checkpoint under the same run_name -- best-effort,
-    # since it's an optional cross-reference, not required for the bout-level
-    # numbers this script itself computed.
-    window_metrics = {}
-    hist_path = checkpoint.parent / f"{run_name}_history.json"
-    if hist_path.exists():
-        hist = json.loads(hist_path.read_text())
-        window_metrics = hist.get("test_metrics", {})
-
-    return {
-        "run_name": run_name,
-        "architecture": meta["architecture"],
-        "pretext_task": meta["pretext_task"],
-        "window_len": meta["window_len"],
-        "checkpoint": str(checkpoint),
-        "n_gt_bouts": sum(r["n_gt_bouts"] for r in results),
-        "n_pred_bouts": sum(r["n_pred_bouts"] for r in results),
-        "window_test_f1": window_metrics.get("f1"),
-        "window_test_precision": window_metrics.get("precision"),
-        "window_test_recall": window_metrics.get("recall"),
-        "window_test_auc": window_metrics.get("auc"),
-        "bout_iou_precision": iou_agg["precision"],
-        "bout_iou_recall": iou_agg["recall"],
-        "bout_iou_f1": iou_agg["f1"],
-        "bout_iou_median_iou": iou_agg["median_iou"],
-        "bout_tolerance_precision": tol_agg["precision"],
-        "bout_tolerance_recall": tol_agg["recall"],
-        "bout_tolerance_f1": tol_agg["f1"],
-        "bout_tolerance_median_iou": tol_agg["median_iou"],
-    }
-
-
-def append_summary_row(path: Path, row: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    df_row = pd.DataFrame([row])
-    if path.exists():
-        existing = pd.read_csv(path)
-        existing = existing[existing["run_name"] != row["run_name"]]  # replace stale re-runs
-        df_row = pd.concat([existing, df_row], ignore_index=True)
-    df_row.to_csv(path, index=False)
 
 
 if __name__ == "__main__":

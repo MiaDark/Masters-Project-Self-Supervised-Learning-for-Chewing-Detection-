@@ -47,7 +47,6 @@ from chewing_ssl.common.utils.seed import set_seed
 from chewing_ssl.ssl.masked.pretrain import MODEL_KWARGS, load_index, pick_device, shuffle_by_segment
 from chewing_ssl.ssl.models import ARCHITECTURES
 
-N_CHANNELS = len(SENSOR_CHANNELS)
 
 
 # Model
@@ -129,7 +128,11 @@ def load_pretrained_encoder(path: Path) -> tuple[nn.Module, dict]:
         )
     architecture = state["architecture"]
     model_kwargs = state.get("model_kwargs", MODEL_KWARGS[architecture])
-    encoder = ARCHITECTURES[architecture](n_channels=N_CHANNELS, **model_kwargs)
+    # Older checkpoints (saved before channel-subset training existed) don't
+    # have a "channels" key -- fall back to the full SENSOR_CHANNELS, which
+    # is what they were always trained on.
+    channels = state.get("channels", SENSOR_CHANNELS)
+    encoder = ARCHITECTURES[architecture](n_channels=len(channels), **model_kwargs)
     encoder.load_state_dict(state["model_state_dict"])
     meta = {
         "architecture": architecture,
@@ -137,6 +140,7 @@ def load_pretrained_encoder(path: Path) -> tuple[nn.Module, dict]:
         "window_len": state.get("window_len"),
         "embedding_dim": encoder.embedding_dim,
         "model_kwargs": model_kwargs,
+        "channels": channels,
     }
     return encoder, meta
 
@@ -240,6 +244,7 @@ def run_phase(
     extra_meta: dict,
     num_workers: int = 0,
     pin_memory: bool = False,
+    channels: list[str] = SENSOR_CHANNELS,
 ) -> float:
     scheduler = (
         torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(n_epochs, 1))
@@ -252,7 +257,7 @@ def run_phase(
         print(f"  {lbl}")
         shuffled = shuffle_by_segment(train_index, seed + seed_offset + epoch)
         train_loader = DataLoader(
-            WindowDataset(shuffled, with_label=True),
+            WindowDataset(shuffled, with_label=True, channels=channels),
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
@@ -392,7 +397,10 @@ def main() -> None:
     pin_memory = device.type == "cuda"
     mp_context = "spawn" if args.num_workers > 0 else None
     val_loader = DataLoader(
-        WindowDataset(val_index.sort_values("segment_path").reset_index(drop=True), with_label=True),
+        WindowDataset(
+            val_index.sort_values("segment_path").reset_index(drop=True), with_label=True,
+            channels=meta["channels"],
+        ),
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
@@ -400,7 +408,10 @@ def main() -> None:
         multiprocessing_context=mp_context,
     )
     test_loader = DataLoader(
-        WindowDataset(test_index.sort_values("segment_path").reset_index(drop=True), with_label=True),
+        WindowDataset(
+            test_index.sort_values("segment_path").reset_index(drop=True), with_label=True,
+            channels=meta["channels"],
+        ),
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
@@ -422,6 +433,7 @@ def main() -> None:
         "model_kwargs": meta["model_kwargs"],
         "head_hidden_dim": args.head_hidden_dim,
         "head_dropout": args.head_dropout,
+        "channels": meta["channels"],
     }
 
     with start_run(run_name=f"finetune_{run_name}"):
@@ -454,7 +466,7 @@ def main() -> None:
             best_val_f1 = run_phase(
                 1, args.phase1_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
                 device, args.batch_size, pos_weight, args.seed, 0, best_ckpt, best_val_f1, history, extra_meta,
-                num_workers=args.num_workers, pin_memory=pin_memory,
+                num_workers=args.num_workers, pin_memory=pin_memory, channels=meta["channels"],
             )
 
         # ── Phase 2: only the last encoder block unfrozen ──
@@ -471,7 +483,7 @@ def main() -> None:
             best_val_f1 = run_phase(
                 2, args.phase2_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
                 device, args.batch_size, pos_weight, args.seed, 1000, best_ckpt, best_val_f1, history, extra_meta,
-                num_workers=args.num_workers, pin_memory=pin_memory,
+                num_workers=args.num_workers, pin_memory=pin_memory, channels=meta["channels"],
             )
 
         # ── Phase 3: entire encoder unfrozen ──
@@ -488,7 +500,7 @@ def main() -> None:
             best_val_f1 = run_phase(
                 3, args.phase3_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
                 device, args.batch_size, pos_weight, args.seed, 2000, best_ckpt, best_val_f1, history, extra_meta,
-                num_workers=args.num_workers, pin_memory=pin_memory,
+                num_workers=args.num_workers, pin_memory=pin_memory, channels=meta["channels"],
             )
 
         # ── Final test evaluation ──
