@@ -1,14 +1,9 @@
 # Single-combo sweep config: reproduces train_ml.yaml's rf_06_regularized_leaf5
-# (the winner of the full 20-combo sweep against the 60/20/20 split) on new
-# data without re-running the other 19 combos. train.py --sweep-config still
-# writes sweep_results.csv/best_model.joblib the normal way -- with one row,
-# trivially selected as "best".
-
+# (the winner of the full 20-combo sweep against the 80/10/10 split
 random_forest:
   - name: rf_06_regularized_leaf5
-    n_estimators: 500
-    min_samples_leaf: 5
-    min_samples_split: 5
-    max_features: 0.5
+    n_estimators: 300
     max_depth: null
+    min_samples_leaf: 5
+    max_features: sqrt
     class_weight: balanced

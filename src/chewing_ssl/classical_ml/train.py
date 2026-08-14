@@ -350,6 +350,13 @@ def main() -> None:
             best = pick_best(results, args.sweep_metric)
             best_path = args.out_dir / "best_model.joblib"
             shutil.copy(best["model_path"], best_path)
+            # Sibling metadata file (joblib itself is just the sklearn Pipeline,
+            # no dict wrapper) -- lets predict_new_recording.py auto-detect
+            # which channels this checkpoint expects, mirroring the masked-SSL
+            # side's checkpoint-stamped "channels" key.
+            (args.out_dir / "model_meta.json").write_text(
+                json.dumps({"channels": input_meta.get("channels"), "features_dir": str(args.features_dir)}, indent=2)
+            )
             print(f"\n  Best combo by {args.sweep_metric}: {best['name']} ({best['model_type']})")
             print(
                 f"    val : f1={best['val_f1']:.3f}  prec={best['val_precision']:.3f}  "
@@ -416,6 +423,9 @@ def main() -> None:
         args.out_dir.mkdir(parents=True, exist_ok=True)
         model_path = args.out_dir / f"{args.model}.joblib"
         joblib.dump(pipeline, model_path)
+        (args.out_dir / "model_meta.json").write_text(
+            json.dumps({"channels": input_meta.get("channels"), "features_dir": str(args.features_dir)}, indent=2)
+        )
         print(f"\n  Saved model -> {model_path}")
 
         metrics_path = args.out_dir / f"{args.model}_metrics.json"

@@ -69,9 +69,17 @@ def _extract_one(task: tuple[str, np.ndarray, str, float]) -> pd.DataFrame:
 
 
 def extract_features(
-    X: np.ndarray, families: list[str], fs: float, parallel: bool, n_jobs: int
+    X: np.ndarray,
+    families: list[str],
+    fs: float,
+    parallel: bool,
+    n_jobs: int,
+    channels: list[str] = SENSOR_CHANNELS,
 ) -> pd.DataFrame:
     """X: (n_windows, n_channels, window_len) -> (n_windows, n_features) DataFrame.
+    `channels` must be the same list, in the same order, used to build X
+    (segment.py's own `channels` param) -- it's only used here for feature
+    naming, but a mismatch would silently mislabel every feature column.
 
     `parallel`/`n_jobs` control OUTER parallelism across the channel x
     family task grid (e.g. 10 channels x 4 families = 40 independent tasks,
@@ -86,7 +94,7 @@ def extract_features(
     """
     tasks = [
         (family, X[:, ch_idx, :], channel, fs)
-        for ch_idx, channel in enumerate(SENSOR_CHANNELS)
+        for ch_idx, channel in enumerate(channels)
         for family in families
     ]
     if not parallel:
@@ -117,6 +125,18 @@ def run(
     out_dir.mkdir(parents=True, exist_ok=True)
     medians = None
 
+    # Read back whichever channel list segment.py actually used (its own
+    # segment_meta.json "channels" key) instead of assuming SENSOR_CHANNELS,
+    # so a nav-only/accel-only segments_dir gets correctly-named,
+    # correctly-sized features rather than a silent index/name mismatch.
+    # Falls back to SENSOR_CHANNELS for older segments_dir trees built before
+    # this key existed.
+    segment_meta_path = segments_dir / "segment_meta.json"
+    segment_meta_early = (
+        json.loads(segment_meta_path.read_text()) if segment_meta_path.exists() else {}
+    )
+    channels = segment_meta_early.get("channels") or SENSOR_CHANNELS
+
     for purpose in ("train", "val", "test"):
         x_path = segments_dir / f"{purpose}_X.npy"
         if not x_path.exists():
@@ -126,11 +146,9 @@ def run(
         X = np.load(x_path)
         y = np.load(segments_dir / f"{purpose}_y.npy")
         meta = pd.read_parquet(segments_dir / f"{purpose}_meta.parquet")
-        print(
-            f"  {purpose}: extracting features for {len(y):,} windows x {len(SENSOR_CHANNELS)} channels ..."
-        )
+        print(f"  {purpose}: extracting features for {len(y):,} windows x {len(channels)} channels ...")
 
-        features = extract_features(X, families, fs, parallel, n_jobs)
+        features = extract_features(X, families, fs, parallel, n_jobs, channels)
         features, medians = sanitize(features, medians if purpose != "train" else None)
 
         out = pd.concat(
@@ -151,17 +169,14 @@ def run(
     n_per_channel = sum(
         {"statistical": 9, "time": 14, "frequency": 35, "wavelet": 27}[f] for f in families
     )
-    segment_meta_path = segments_dir / "segment_meta.json"
-    segmentation = (
-        json.loads(segment_meta_path.read_text()) if segment_meta_path.exists() else None
-    )
+    segmentation = segment_meta_early or None
     feature_meta = {
         "segments_dir": str(segments_dir),
         "families": families,
         "fs": fs,
-        "channels": SENSOR_CHANNELS,
+        "channels": channels,
         "n_features_per_channel": n_per_channel,
-        "n_features_total": len(SENSOR_CHANNELS) * n_per_channel,
+        "n_features_total": len(channels) * n_per_channel,
         # Best-effort: only present if segment.py wrote it (older segment.py
         # runs, or a segments_dir built some other way, won't have one) --
         # this is what lets train.py log "how the input was processed" (window
@@ -205,14 +220,18 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    segment_meta_path = args.segments_dir / "segment_meta.json"
+    channels = (
+        json.loads(segment_meta_path.read_text()).get("channels") or SENSOR_CHANNELS
+        if segment_meta_path.exists()
+        else SENSOR_CHANNELS
+    )
     n_per_channel = sum(
         {"statistical": 9, "time": 14, "frequency": 35, "wavelet": 27}[f] for f in args.features
     )
     print("\nML feature extraction")
     print(f"  Families      : {', '.join(args.features)}")
-    print(
-        f"  Features/win  : {len(SENSOR_CHANNELS)} channels x {n_per_channel}/channel = {len(SENSOR_CHANNELS) * n_per_channel}"
-    )
+    print(f"  Features/win  : {len(channels)} channels x {n_per_channel}/channel = {len(channels) * n_per_channel}")
     print(f"  Parallel      : {args.parallel}  (n_jobs={args.n_jobs})")
 
     run(args.segments_dir, args.out, args.features, args.fs, args.parallel, args.n_jobs)
