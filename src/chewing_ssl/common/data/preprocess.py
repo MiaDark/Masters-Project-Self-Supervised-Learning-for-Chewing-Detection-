@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from scipy.signal import butter, filtfilt
 
-from chewing_ssl.common.data.eda import discover_recordings
+from chewing_ssl.common.data.eda import SIGNAL_CLIP_RANGES, clip_signal_ranges, discover_recordings
 from chewing_ssl.common.data.loaders import ACCEL_COLS, load_recording
 
 DEFAULT_TARGET_HZ = 50.0
@@ -35,6 +35,29 @@ DERIVATIVE_SUFFIX = "_d1"
 RAW_CHANNELS = [*ACCEL_COLS, "nav_x_left_temple", "nav_y_left_temple"]
 DERIVATIVE_CHANNELS = [f"{c}{DERIVATIVE_SUFFIX}" for c in RAW_CHANNELS]
 SENSOR_CHANNELS = RAW_CHANNELS + DERIVATIVE_CHANNELS
+
+# Single-modality channel subsets (raw channels only -- see channels_for_modality
+# for the raw+derivative expansion), shared by every script that needs to
+# build a nav-only or accel-only model or ablation: classical_ml's
+# segment.py/extract_features.py, ssl/masked's pretrain.py/finetune.py, and
+# predict_new_recording.py's inference-time zero-ablation.
+MODALITY_CHANNELS: dict[str, list[str]] = {
+    "nav": ["nav_x_left_temple", "nav_y_left_temple"],
+    "accel": list(ACCEL_COLS),
+}
+
+
+def channels_for_modality(only: str) -> list[str]:
+    """'all' -> the full SENSOR_CHANNELS list. 'nav'/'accel' -> just that
+    modality's raw + `_d1` derivative channels (a genuine channel-count
+    reduction, for training a real single-modality model -- contrast with
+    predict_new_recording.py's zero_out_modality, which keeps all 10
+    channels and zeroes the excluded modality's values instead, for
+    ablating an already-trained joint model without retraining)."""
+    if only == "all":
+        return list(SENSOR_CHANNELS)
+    raw = MODALITY_CHANNELS[only]
+    return raw + [f"{c}{DERIVATIVE_SUFFIX}" for c in raw]
 
 
 def select_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -214,6 +237,7 @@ def resample_recording(
         if duration_s < min_segment_s:
             continue
         resampled = resample_segment(raw_segment, target_hz)
+        resampled = clip_signal_ranges(resampled)
         filtered = apply_lowpass_filter(resampled, RAW_CHANNELS, cutoff_hz, filter_order, target_hz)
         with_derivative = add_derivative_channels(filtered, RAW_CHANNELS, target_hz)
         meta = {
@@ -223,6 +247,7 @@ def resample_recording(
             "duration_s": duration_s,
             "n_samples": len(with_derivative),
             "has_label": "label" in with_derivative.columns,
+            "clip": {"ranges": SIGNAL_CLIP_RANGES},
             "filter": {
                 "type": "butterworth_lowpass",
                 "cutoff_hz": cutoff_hz,
