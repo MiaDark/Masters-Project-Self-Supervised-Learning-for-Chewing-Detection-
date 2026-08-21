@@ -60,6 +60,8 @@ def plot_one(
     global_stats_path: Path,
     out_path: Path,
     max_points: int = MAX_PLOT_POINTS,
+    show_normalized: bool = True,
+    generic_title: bool = False,
 ) -> None:
     # Stage 0: raw, exactly as loaded (post scaling-revert + clip upstream,
     # before anything in preprocess.py touches it). The longest gap-free
@@ -81,17 +83,22 @@ def plot_one(
 
     # Stage 4: normalized (global stats if available, else this segment's own
     # mean/std as a clearly-labelled fallback -- NOT the real global model input).
-    stats, norm_label = load_global_stats(global_stats_path, channel, filtered)
-    normalized = (filtered[channel] - stats["mean"]) / (stats["std"] + 1e-8)
+    # Optional: normalization is fit-dependent (global vs. per-recording) rather
+    # than a single deterministic transform, so it's often clearer to describe
+    # separately in prose than to show as a panel of this figure.
+    if show_normalized:
+        stats, norm_label = load_global_stats(global_stats_path, channel, filtered)
+        normalized = (filtered[channel] - stats["mean"]) / (stats["std"] + 1e-8)
+        normalized_plot = _thin(
+            pd.DataFrame({"datetime": filtered["datetime"], "value": normalized}), max_points
+        )
 
     raw_plot = _thin(raw, max_points)
     filtered_plot = _thin(filtered, max_points)
     deriv_plot = _thin(with_derivative, max_points)
-    normalized_plot = _thin(
-        pd.DataFrame({"datetime": filtered["datetime"], "value": normalized}), max_points
-    )
 
-    fig, axes = plt.subplots(4, 1, figsize=(14, 9), sharex=True)
+    n_panels = 4 if show_normalized else 3
+    fig, axes = plt.subplots(n_panels, 1, figsize=(14, 9 * n_panels / 4), sharex=True)
 
     axes[0].plot(raw_plot["datetime"], raw_plot[channel], color="steelblue", linewidth=0.6)
     axes[0].set_title(f"1. Raw -- {channel}")
@@ -113,18 +120,23 @@ def plot_one(
         f"3. First derivative -- {channel}{DERIVATIVE_SUFFIX} (per second, of the filtered signal)"
     )
 
-    axes[3].plot(
-        normalized_plot["datetime"], normalized_plot["value"], color="firebrick", linewidth=0.6
-    )
-    axes[3].set_title(f"4. Normalized ({norm_label})")
-    axes[3].set_xlabel("Time")
+    if show_normalized:
+        axes[3].plot(
+            normalized_plot["datetime"], normalized_plot["value"], color="firebrick", linewidth=0.6
+        )
+        axes[3].set_title(f"4. Normalized ({norm_label})")
+
+    axes[-1].set_xlabel("Time")
 
     for ax in axes:
         ax.set_ylabel("value")
         ax.grid(alpha=0.3)
         _shade_bouts(ax, bouts)
 
-    fig.suptitle(f"{dataset}/{tag} preprocessing pipeline -- {channel} (orange = chewing bout)")
+    if generic_title:
+        fig.suptitle(f"Preprocessing pipeline -- {channel} (orange = chewing bout)")
+    else:
+        fig.suptitle(f"{dataset}/{tag} preprocessing pipeline -- {channel} (orange = chewing bout)")
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=140)
@@ -149,6 +161,18 @@ def main() -> None:
     )
     parser.add_argument(
         "--out", type=Path, default=Path("src/chewing_ssl/data/reports/preprocessing_steps.png")
+    )
+    parser.add_argument(
+        "--no-normalize",
+        action="store_true",
+        help="Drop the normalized panel (3 panels: raw/filtered/derivative) instead of 4. "
+        "Useful for a methods figure, since normalization is fit-dependent (global vs. "
+        "per-recording) rather than a single deterministic transform to show alongside the rest.",
+    )
+    parser.add_argument(
+        "--generic-title",
+        action="store_true",
+        help="Title just names the channel, without the dataset/participant tag.",
     )
     parser.add_argument(
         "--all",
@@ -182,7 +206,16 @@ def main() -> None:
         else:
             path, args.tag = recordings[0]
         print(f"Using {args.dataset}/{args.tag}: {path}")
-        plot_one(args.dataset, args.tag, path, args.channel, args.global_stats, args.out)
+        plot_one(
+            args.dataset,
+            args.tag,
+            path,
+            args.channel,
+            args.global_stats,
+            args.out,
+            show_normalized=not args.no_normalize,
+            generic_title=args.generic_title,
+        )
         print(f"Wrote {args.out}")
         return
 
