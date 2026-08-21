@@ -65,7 +65,9 @@ from chewing_ssl.common.evaluation.pipeline import (
     add_postprocess_args,
     aggregate_alignment,
     aggregate_dual_mode,
+    append_summary_row,
     build_bite_ledger,
+    build_summary_row,
     evaluate_recording,
     postprocess_config_from_args,
 )
@@ -308,6 +310,17 @@ def main() -> None:
         help="Write the per-bite ledger here (only produced if the recording has "
         "ground truth). Default: <out-dir>/bout_ledger.csv.",
     )
+    parser.add_argument(
+        "--summary-csv", type=Path, default=None,
+        help="Optional: append this run's aggregate dual-mode metrics as one row "
+        "(schema shared with classical_ml/evaluate_bouts.py and "
+        "ssl/masked/evaluate_bouts.py) -- only produced if at least one recording "
+        "has ground truth.",
+    )
+    parser.add_argument(
+        "--run-name", default=None,
+        help="Identity for --summary-csv's row. Defaults to --out-dir's name.",
+    )
     args = parser.parse_args()
     argv_dests = [a.split("=")[0] for a in __import__("sys").argv]
 
@@ -445,6 +458,15 @@ def main() -> None:
             ledger_rows += ledger_rows_for_recording(ident, result, args.match_mode)
         pd.DataFrame(ledger_rows).to_csv(out_csv, index=False)
         print(f"\n  Per-bite ledger -> {out_csv}")
+
+        if args.summary_csv:
+            row = build_summary_row(
+                {"run_name": args.run_name or args.out_dir.name, "model_type": args.model,
+                 "normalization": args.normalization, "only": args.only},
+                dual,
+            )
+            append_summary_row(args.summary_csv, row)
+            print(f"  Summary row -> {args.summary_csv}")
 
     print(f"\n{'=' * 70}\n")
 
