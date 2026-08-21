@@ -144,6 +144,36 @@ FEIT_S05_COLUMNS: dict[str, str] = {
     "Label": "label",
 }
 
+# s11_feit_eating (new 2026 cohort): same device/software family as
+# FEIT_eating_S05 (space-separated headers, ms timestamps), BUT recorded
+# from the RIGHT temple sensor, not left -- this cohort has no
+# nav_x/y_left_temple data at all. Every model in this project (classical
+# ML's hand-crafted features, masked-SSL's raw input channels) was trained
+# exclusively on LEFT-temple signal; right temple was previously audited
+# and found unreliable/dead in a substantial fraction of the ORIGINAL
+# datasets, which is why left temple was chosen as the standard channel to
+# begin with (see docs/preprocessing.md). Mapping "Navigation Right Temple
+# X/Y" onto the nav_x/y_left_temple column names below is therefore an
+# UNVALIDATED SUBSTITUTION, not a claim the two sensors are equivalent --
+# the dataset key's own name carries that caveat through every downstream
+# output (file paths, ledger rows, console reports) so a result from this
+# cohort can never be mistaken for a validated one. Also note the label
+# column is "annotation_label" here, not "Label".
+FEIT_S11_RIGHT_TEMPLE_COLUMNS: dict[str, str] = {
+    "Software Timestamp": "timestamp_raw",
+    "Hardware Timestamp": "hw_timestamp_raw",
+    "Accelerometer X": "accel_x",
+    "Accelerometer Y": "accel_y",
+    "Accelerometer Z": "accel_z",
+    "Gyroscope X": "gyro_x",
+    "Gyroscope Y": "gyro_y",
+    "Gyroscope Z": "gyro_z",
+    "Navigation Right Temple X": "nav_x_left_temple",
+    "Navigation Right Temple Y": "nav_y_left_temple",
+    "Proximity Right Temple": "prox_left_temple",
+    "annotation_label": "label",
+}
+
 # Categorical -> binary label maps. Values not present in the map (e.g.
 # "Unknown") become NaN, same as the unlabeled gaps in the other datasets.
 DIVERSE_NORMATIVE_LABEL_MAP = {"chewing": 1, "other": 0}
@@ -168,6 +198,11 @@ DATASET_SPECS: dict[str, dict] = {
     },
     "Office_eating_s05": {
         "columns": FEIT_S05_COLUMNS,
+        "timestamp_unit": "ms",
+        "label_map": FEIT_S05_LABEL_MAP,
+    },
+    "FEIT_eating_S11_RightTempleSubstitute_UNVALIDATED": {
+        "columns": FEIT_S11_RIGHT_TEMPLE_COLUMNS,
         "timestamp_unit": "ms",
         "label_map": FEIT_S05_LABEL_MAP,
     },

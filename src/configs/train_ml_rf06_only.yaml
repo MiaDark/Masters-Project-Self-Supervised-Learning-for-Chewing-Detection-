@@ -1,0 +1,9 @@
+# Single-combo sweep config: reproduces train_ml.yaml's rf_06_regularized_leaf5
+# (the winner of the full 20-combo sweep against the 80/10/10 split
+random_forest:
+  - name: rf_06_regularized_leaf5
+    n_estimators: 300
+    max_depth: null
+    min_samples_leaf: 5
+    max_features: sqrt
+    class_weight: balanced

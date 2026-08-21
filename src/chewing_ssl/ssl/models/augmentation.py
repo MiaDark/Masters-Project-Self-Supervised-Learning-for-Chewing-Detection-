@@ -82,7 +82,7 @@ def masking(
     target -- this is meant to be a survivable view for contrastive learning,
     not a task that requires reconstructing most of the window."""
     b, _, t = x.shape
-    span_len = max(int(round(mask_ratio * t)), 0)
+    span_len = max(round(mask_ratio * t), 0)
     out = x.clone()
     if span_len == 0:
         return out
@@ -225,11 +225,11 @@ def fuse_time_frequency(
     time_flat = time_aug.reshape(b, -1)
     freq_flat = np.concatenate([freq_aug.real.reshape(b, -1), freq_aug.imag.reshape(b, -1)], axis=1)
 
-    kwargs = dict(
-        n_components=kernel_pca_config["n_components"],
-        kernel=kernel_pca_config["kernel"],
-        gamma=kernel_pca_config.get("gamma"),
-    )
+    kwargs = {
+        "n_components": kernel_pca_config["n_components"],
+        "kernel": kernel_pca_config["kernel"],
+        "gamma": kernel_pca_config.get("gamma"),
+    }
     time_embedded = KernelPCA(**kwargs).fit_transform(time_flat)
     freq_embedded = KernelPCA(**kwargs).fit_transform(freq_flat)
     return np.concatenate([time_embedded, freq_embedded], axis=1)

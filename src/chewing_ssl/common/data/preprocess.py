@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from scipy.signal import butter, filtfilt
 
-from chewing_ssl.common.data.eda import discover_recordings
+from chewing_ssl.common.data.eda import SIGNAL_CLIP_RANGES, clip_signal_ranges, discover_recordings
 from chewing_ssl.common.data.loaders import ACCEL_COLS, load_recording
 
 DEFAULT_TARGET_HZ = 50.0
@@ -35,6 +35,29 @@ DERIVATIVE_SUFFIX = "_d1"
 RAW_CHANNELS = [*ACCEL_COLS, "nav_x_left_temple", "nav_y_left_temple"]
 DERIVATIVE_CHANNELS = [f"{c}{DERIVATIVE_SUFFIX}" for c in RAW_CHANNELS]
 SENSOR_CHANNELS = RAW_CHANNELS + DERIVATIVE_CHANNELS
+
+# Single-modality channel subsets (raw channels only -- see channels_for_modality
+# for the raw+derivative expansion), shared by every script that needs to
+# build a nav-only or accel-only model or ablation: classical_ml's
+# segment.py/extract_features.py, ssl/masked's pretrain.py/finetune.py, and
+# predict_new_recording.py's inference-time zero-ablation.
+MODALITY_CHANNELS: dict[str, list[str]] = {
+    "nav": ["nav_x_left_temple", "nav_y_left_temple"],
+    "accel": list(ACCEL_COLS),
+}
+
+
+def channels_for_modality(only: str) -> list[str]:
+    """'all' -> the full SENSOR_CHANNELS list. 'nav'/'accel' -> just that
+    modality's raw + `_d1` derivative channels (a genuine channel-count
+    reduction, for training a real single-modality model -- contrast with
+    predict_new_recording.py's zero_out_modality, which keeps all 10
+    channels and zeroes the excluded modality's values instead, for
+    ablating an already-trained joint model without retraining)."""
+    if only == "all":
+        return list(SENSOR_CHANNELS)
+    raw = MODALITY_CHANNELS[only]
+    return raw + [f"{c}{DERIVATIVE_SUFFIX}" for c in raw]
 
 
 def select_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -98,7 +121,7 @@ def resample_segment(df: pd.DataFrame, target_hz: float = DEFAULT_TARGET_HZ) -> 
     fractional labels, which makes no sense for a binary chewing flag.
     """
     start, end = df["datetime"].iloc[0], df["datetime"].iloc[-1]
-    n_samples = max(int(round((end - start).total_seconds() * target_hz)) + 1, 1)
+    n_samples = max(round((end - start).total_seconds() * target_hz) + 1, 1)
     grid = pd.date_range(start, end, periods=n_samples)
 
     t_src = (df["datetime"] - start).dt.total_seconds().to_numpy()
@@ -136,6 +159,64 @@ def apply_global_stats(df: pd.DataFrame, stats: dict, eps: float = 1e-8) -> pd.D
     return out
 
 
+def fit_minmax_stats(
+    segments: list[pd.DataFrame],
+    channels: list[str] = SENSOR_CHANNELS,
+    lower_pct: float = 1.0,
+    upper_pct: float = 99.0,
+) -> dict:
+    """Per-channel (lo, hi) bounds, pooled across every segment of ONE
+    recording (all its gap-bounded segments combined) -- the fit population
+    for per-recording min-max normalization to [-1, 1].
+
+    Unlike `fit_global_stats`, this is never pooled ACROSS recordings/
+    participants -- each recording supplies and consumes its own bounds, so
+    there's no train/val/test split dependency and no decision-003 leakage
+    concern to guard against (nothing crosses a file boundary).
+
+    `lower_pct`/`upper_pct` (default 1st/99th percentile), not the literal
+    min/max: a direct check across all 2650 (recording, channel) pairs in
+    this project's raw data found some recordings (concentrated in
+    Spectacle_NonMeal's nav channels, both raw and derivative) where a
+    handful of samples -- a single sensor glitch amplified by np.gradient
+    into a derivative spike -- inflate the true range up to ~460x beyond
+    where 98% of the actual signal sits. Literal min/max would compress the
+    entire real signal in those recordings to near-zero after scaling;
+    percentile-based bounds are robust to that while still being a plain
+    min-max-style scaling in spirit. See `apply_minmax_stats` for the
+    matching clip (percentile bounds don't cover the tails by construction,
+    so values beyond them must be clipped to stay within [-1, 1]).
+    """
+    stats = {}
+    for c in channels:
+        values = np.concatenate([seg[c].to_numpy() for seg in segments if c in seg.columns])
+        lo, hi = np.percentile(values, [lower_pct, upper_pct])
+        stats[c] = {
+            "lo": float(lo),
+            "hi": float(hi),
+            "lower_pct": lower_pct,
+            "upper_pct": upper_pct,
+        }
+    return stats
+
+
+def apply_minmax_stats(df: pd.DataFrame, stats: dict, eps: float = 1e-8) -> pd.DataFrame:
+    """Rescale each channel to [-1, 1] via its own (lo, hi) bounds:
+    `2*(x-lo)/(hi-lo+eps) - 1`, then clip to [-1, 1] -- values outside the
+    fitted [lo, hi] range (expected: `fit_minmax_stats` uses percentile
+    bounds, not the literal extremes, so ~1% of samples on each tail fall
+    outside by construction) are clamped rather than left to blow past the
+    intended range. `eps` guards a degenerate (hi == lo) channel, though
+    none were observed in this project's data."""
+    out = df.copy()
+    for c, s in stats.items():
+        if c in out.columns:
+            span = s["hi"] - s["lo"]
+            scaled = 2.0 * (out[c] - s["lo"]) / (span + eps) - 1.0
+            out[c] = scaled.clip(-1.0, 1.0)
+    return out
+
+
 def resample_recording(
     dataset: str,
     path: Path,
@@ -161,6 +242,7 @@ def resample_recording(
         if duration_s < min_segment_s:
             continue
         resampled = resample_segment(raw_segment, target_hz)
+        resampled = clip_signal_ranges(resampled)
         filtered = apply_lowpass_filter(resampled, RAW_CHANNELS, cutoff_hz, filter_order, target_hz)
         with_derivative = add_derivative_channels(filtered, RAW_CHANNELS, target_hz)
         meta = {
@@ -170,6 +252,7 @@ def resample_recording(
             "duration_s": duration_s,
             "n_samples": len(with_derivative),
             "has_label": "label" in with_derivative.columns,
+            "clip": {"ranges": SIGNAL_CLIP_RANGES},
             "filter": {
                 "type": "butterworth_lowpass",
                 "cutoff_hz": cutoff_hz,
@@ -204,7 +287,7 @@ def run_batch(datasets: list[str], root: Path, out_root: Path, **kwargs) -> None
             print(f"[{i}/{len(recordings)}] {dataset}/{tag}")
             try:
                 segments = resample_recording(dataset, path, **kwargs)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- one bad recording shouldn't abort the batch
                 print(f"  FAILED: {exc}")
                 continue
 

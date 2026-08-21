@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import warnings
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -44,15 +46,61 @@ DRIVERS = {
 }
 
 
+def _extract_one(task: tuple[str, np.ndarray, str, float]) -> pd.DataFrame:
+    """Top-level, picklable worker for ProcessPoolExecutor: one (family,
+    channel) pair's features. emteqai's own internal parallelism is always
+    OFF here (parallel=False, n_jobs=1) -- this function call itself IS the
+    unit of parallelism (see extract_features' docstring); nesting emteqai's
+    finer-grained internal joblib parallelism inside each worker process
+    would reintroduce the exact worker-pool-spawn-overhead pathology that
+    made the old --parallel path ~77x slower."""
+    family, data, channel, fs = task
+    with warnings.catch_warnings():
+        # Expected, already safety-netted: near-constant-variance windows
+        # make scipy's kurtosis/skew (stat_driver) numerically unstable
+        # (catastrophic cancellation dividing by a tiny variance). Any
+        # resulting NaN/Inf is replaced by the train-split median in
+        # sanitize() downstream -- this is a diagnostic, not a correctness
+        # bug, and would otherwise spam output across thousands of windows.
+        warnings.filterwarnings("ignore", message="Precision loss occurred in moment calculation.*")
+        return DRIVERS[family](data, channel, fs, False, 1)
+
+
 def extract_features(
-    X: np.ndarray, families: list[str], fs: float, parallel: bool, n_jobs: int
+    X: np.ndarray,
+    families: list[str],
+    fs: float,
+    parallel: bool,
+    n_jobs: int,
+    channels: list[str] = SENSOR_CHANNELS,
 ) -> pd.DataFrame:
-    """X: (n_windows, n_channels, window_len) -> (n_windows, n_features) DataFrame."""
-    per_channel_frames = []
-    for ch_idx, channel in enumerate(SENSOR_CHANNELS):
-        data = X[:, ch_idx, :]  # (n_windows, window_len)
-        for family in families:
-            per_channel_frames.append(DRIVERS[family](data, channel, fs, parallel, n_jobs))
+    """X: (n_windows, n_channels, window_len) -> (n_windows, n_features) DataFrame.
+    `channels` must be the same list, in the same order, used to build X
+    (segment.py's own `channels` param) -- it's only used here for feature
+    naming, but a mismatch would silently mislabel every feature column.
+
+    `parallel`/`n_jobs` control OUTER parallelism across the channel x
+    family task grid (e.g. 10 channels x 4 families = 40 independent tasks,
+    each processing the FULL window batch for one channel/family) via a
+    process pool -- not emteqai's own internal per-call parallelism (see
+    _extract_one). Each of these 40 tasks is substantial (thousands of
+    windows), unlike the fine-grained chunks emteqai's own internal
+    parallelism splits a single call into, so worker-pool spawn overhead is
+    paid once per task instead of repeatedly per tiny chunk -- this is what
+    actually benefits from concurrency at this workload's scale, where the
+    previous (emteqai-internal) --parallel option measured 77x slower.
+    """
+    tasks = [
+        (family, X[:, ch_idx, :], channel, fs)
+        for ch_idx, channel in enumerate(channels)
+        for family in families
+    ]
+    if not parallel:
+        per_channel_frames = [_extract_one(t) for t in tasks]
+    else:
+        max_workers = None if n_jobs is None or n_jobs <= 0 else n_jobs
+        with ProcessPoolExecutor(max_workers=max_workers) as pool:
+            per_channel_frames = list(pool.map(_extract_one, tasks))
     return pd.concat(per_channel_frames, axis=1)
 
 
@@ -75,6 +123,18 @@ def run(
     out_dir.mkdir(parents=True, exist_ok=True)
     medians = None
 
+    # Read back whichever channel list segment.py actually used (its own
+    # segment_meta.json "channels" key) instead of assuming SENSOR_CHANNELS,
+    # so a nav-only/accel-only segments_dir gets correctly-named,
+    # correctly-sized features rather than a silent index/name mismatch.
+    # Falls back to SENSOR_CHANNELS for older segments_dir trees built before
+    # this key existed.
+    segment_meta_path = segments_dir / "segment_meta.json"
+    segment_meta_early = (
+        json.loads(segment_meta_path.read_text()) if segment_meta_path.exists() else {}
+    )
+    channels = segment_meta_early.get("channels") or SENSOR_CHANNELS
+
     for purpose in ("train", "val", "test"):
         x_path = segments_dir / f"{purpose}_X.npy"
         if not x_path.exists():
@@ -85,10 +145,10 @@ def run(
         y = np.load(segments_dir / f"{purpose}_y.npy")
         meta = pd.read_parquet(segments_dir / f"{purpose}_meta.parquet")
         print(
-            f"  {purpose}: extracting features for {len(y):,} windows x {len(SENSOR_CHANNELS)} channels ..."
+            f"  {purpose}: extracting features for {len(y):,} windows x {len(channels)} channels ..."
         )
 
-        features = extract_features(X, families, fs, parallel, n_jobs)
+        features = extract_features(X, families, fs, parallel, n_jobs, channels)
         features, medians = sanitize(features, medians if purpose != "train" else None)
 
         out = pd.concat(
@@ -105,6 +165,34 @@ def run(
 
         if purpose == "train":
             (out_dir / "feature_medians.json").write_text(json.dumps(medians.to_dict(), indent=2))
+
+    n_per_channel = sum(
+        {"statistical": 9, "time": 14, "frequency": 35, "wavelet": 27}[f] for f in families
+    )
+    segmentation = segment_meta_early or None
+    feature_meta = {
+        "segments_dir": str(segments_dir),
+        "families": families,
+        "fs": fs,
+        "channels": channels,
+        "n_features_per_channel": n_per_channel,
+        "n_features_total": len(channels) * n_per_channel,
+        # Best-effort: only present if segment.py wrote it (older segment.py
+        # runs, or a segments_dir built some other way, won't have one) --
+        # this is what lets train.py log "how the input was processed" (window
+        # length, train/eval stride, overlap) without needing its own
+        # knowledge of the segmentation step, several stages upstream of it.
+        "segmentation": segmentation,
+    }
+    (out_dir / "feature_meta.json").write_text(json.dumps(feature_meta, indent=2))
+    print(
+        f"  Wrote provenance -> {out_dir / 'feature_meta.json'}"
+        + (
+            ""
+            if segmentation
+            else "  (segment_meta.json not found upstream -- segmentation info omitted)"
+        )
+    )
 
 
 def main() -> None:
@@ -125,22 +213,32 @@ def main() -> None:
         "--parallel",
         action="store_true",
         default=False,
-        help="Use emteqai's joblib/loky parallelism inside each driver call. Default off: this "
-        "script makes many small per-channel-per-family calls (4 families x 10 channels), so "
-        "per-call worker-pool spawn overhead dominates and made a real run ~77x SLOWER in "
-        "testing (162s vs 2.1s for the same 80 windows) -- only worth trying on a machine "
-        "where multiprocessing overhead is cheaper relative to array size.",
+        help="Parallelize across the channel x family task grid (e.g. 10 channels x 4 "
+        "families = 40 tasks) using a process pool -- one task per worker, each processing "
+        "the full window batch for one channel/family. Default off (sequential). NOT the "
+        "same as an earlier version's --parallel, which enabled emteqai's own internal "
+        "per-call parallelism and was measured ~77x SLOWER (worker-pool spawn overhead "
+        "dominating many small per-call chunks); emteqai's internal parallelism stays "
+        "permanently disabled regardless of this flag, to avoid nesting the two.",
     )
-    parser.add_argument("--n-jobs", type=int, default=-1)
+    parser.add_argument(
+        "--n-jobs", type=int, default=-1, help="Worker processes for --parallel. -1 = all cores."
+    )
     args = parser.parse_args()
 
+    segment_meta_path = args.segments_dir / "segment_meta.json"
+    channels = (
+        json.loads(segment_meta_path.read_text()).get("channels") or SENSOR_CHANNELS
+        if segment_meta_path.exists()
+        else SENSOR_CHANNELS
+    )
     n_per_channel = sum(
         {"statistical": 9, "time": 14, "frequency": 35, "wavelet": 27}[f] for f in args.features
     )
     print("\nML feature extraction")
     print(f"  Families      : {', '.join(args.features)}")
     print(
-        f"  Features/win  : {len(SENSOR_CHANNELS)} channels x {n_per_channel}/channel = {len(SENSOR_CHANNELS) * n_per_channel}"
+        f"  Features/win  : {len(channels)} channels x {n_per_channel}/channel = {len(channels) * n_per_channel}"
     )
     print(f"  Parallel      : {args.parallel}  (n_jobs={args.n_jobs})")
 

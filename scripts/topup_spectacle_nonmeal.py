@@ -113,9 +113,7 @@ def candidate_is_valid(df: pd.DataFrame) -> bool:
         return False
     if df[check_cols].isna().any().any():
         return False
-    if accel_cols and df[accel_cols].std().max() < FLAT_STD_THRESHOLD:
-        return False
-    return True
+    return not (accel_cols and df[accel_cols].std().max() < FLAT_STD_THRESHOLD)
 
 
 def main() -> None:

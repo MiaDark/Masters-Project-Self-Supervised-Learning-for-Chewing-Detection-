@@ -42,3 +42,8 @@ def load_preprocessing_config(path: str | Path = "configs/preprocessing.yaml") -
 def load_augmentation_config(path: str | Path = "configs/augmentation.yaml") -> dict[str, Any]:
     """Load chewing_ssl.ssl.models.augmentation parameters (decision 004)."""
     return load_yaml(path)
+
+
+def load_train_ml_config(path: str | Path = "configs/train_ml.yaml") -> dict[str, Any]:
+    """Load chewing_ssl.classical_ml.train's hyperparameter sweep definitions."""
+    return load_yaml(path)

@@ -93,7 +93,7 @@ def test_permutation_single_segment_is_identity():
 def test_masking_zeroes_exactly_mask_ratio_span():
     x = torch.ones(B, C, T)
     out = masking(x, mask_ratio=0.1, mask_value=0.0, generator=torch.Generator().manual_seed(0))
-    expected_len = int(round(0.1 * T))
+    expected_len = round(0.1 * T)
     for b in range(B):
         n_masked = (out[b, 0] == 0.0).sum().item()
         assert n_masked == expected_len

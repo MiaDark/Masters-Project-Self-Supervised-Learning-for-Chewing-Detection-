@@ -2,6 +2,15 @@
 
 - **Status:** Accepted
 - **Date:** _set when committed_
+- **Implementation status** (added retrospectively): implemented —
+  `docs/uncertainty.md`, `src/chewing_ssl/uncertainty/`. Went beyond this
+  decision's original scope in one respect: rather than only the deep
+  ensemble mentioned below as a sanity-check alternative, the classical-ML
+  Random Forest's own tree ensemble is used as a second, genuinely
+  different uncertainty mechanism (no retraining needed, since the forest
+  already contains every tree) — see `docs/uncertainty.md` §2.2. Reliability
+  diagrams and ECE, both asked for below, are implemented and reported for
+  all 12 model configurations.
 
 ## Context
 

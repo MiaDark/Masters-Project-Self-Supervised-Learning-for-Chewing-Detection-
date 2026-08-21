@@ -42,7 +42,6 @@ from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS
 from chewing_ssl.ssl.models import ARCHITECTURES
 from chewing_ssl.ssl.models.masking import apply_mask_token, sample_mask_batch
 
-
 CHANNEL_LABELS = {
     "nav_x_left_temple": "Nav X\nLeft Temple",
     "nav_y_left_temple": "Nav Y\nLeft Temple",
@@ -138,7 +137,7 @@ def transform_arrow_of_time(x: np.ndarray) -> np.ndarray:
 
 def transform_permutation(x: np.ndarray, n_chunks: int = 4, seed: int = 7) -> np.ndarray:
     rng = np.random.default_rng(seed)
-    C, T = x.shape
+    _C, T = x.shape
     chunk = T // n_chunks
     order = rng.permutation(n_chunks)
     return np.concatenate([x[:, i * chunk : (i + 1) * chunk] for i in order], axis=1)
@@ -392,7 +391,7 @@ def main() -> None:
 
     # ── Load one real chewing window ──
     print(f"\n  Loading: {args.dataset} / {args.participant}  (variant={args.variant})")
-    x, participant, start_row = find_chewing_window(
+    x, participant, _start_row = find_chewing_window(
         args.interim_root, args.dataset, args.participant, args.variant
     )
     print(
@@ -401,7 +400,7 @@ def main() -> None:
     )
 
     # ── Build the mask ──
-    x_masked, mask = make_mask(x, seed=args.mask_seed)
+    _x_masked, mask = make_mask(x, seed=args.mask_seed)
     print(f"  Mask: {mask.mean() * 100:.1f}% of positions hidden")
 
     # ── Figure 1: Transforms demo ──
