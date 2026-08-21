@@ -2,6 +2,15 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-15
+- **Implementation status** (added retrospectively): the TF-C/TF-FC code
+  path is implemented (`src/chewing_ssl/ssl/tfc/`, checkpoint-compatible
+  with the same fine-tuning head as masked reconstruction) but **has not
+  been pretrained at scale** — no TF-C results exist anywhere in this
+  project's checkpoints or docs. There is also no dedicated `docs/tfc.md`
+  write-up (referenced from `docs/classical_ml.md` at one point, but never
+  created — that reference has been corrected to point here instead). If
+  this remains out of scope for the dissertation, say so explicitly in the
+  thesis rather than leaving it implicitly abandoned.
 
 ## Context
 

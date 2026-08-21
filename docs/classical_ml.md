@@ -11,10 +11,26 @@ directly.
 (`docs/ssl_masked.md`) — its 8-way ablation (2 pretext tasks × 2
 architectures × 2 window sizes) is fully pretrained, fine-tuned, and
 evaluated, with results in `checkpoints/masked_ablation_summary.csv`. The
-contrastive TF-C path (`docs/tfc.md`) exists and is checkpoint-compatible
-with fine-tuning, but has not yet been pretrained at scale — see that
-document's own open items. §7 below gives the current side-by-side numbers
-against masked-reconstruction's best combination.
+contrastive TF-C path (implemented per decision
+[004](decisions/004_contrastive_pretext_task.md), `ssl/tfc/`) is
+checkpoint-compatible with fine-tuning but has not yet been pretrained at
+scale, and — unlike the other pipelines — has no dedicated writeup doc yet
+(`docs/tfc.md` doesn't exist; if you're looking for it, decision 004 and the
+module docstrings in `ssl/tfc/` are the only source right now). §7 below
+gives the current side-by-side numbers against masked-reconstruction's best
+combination.
+
+**Superseded by later work, not reflected in this document**: everything
+below still reports the original 60/20/20-split numbers only. The current,
+higher-provenance numbers (80/10/10 split, retrained from scratch) are in
+`docs/dissertation_classical_ml_sections.md` — read that document for
+anything you'd cite in the dissertation itself; this one is kept as the
+detailed investigation log its polished counterpart condenses from (the
+step-by-step postprocessing derivation in §6 particularly). Newer still,
+and not reflected in either document: a raw-signal clipping fix and a
+genuine per-sensor (nav-only/accel-only) retrained model family
+(`checkpoints/uncertainty_models/MANIFEST.md`'s "Gen 3"), feeding
+`checkpoints/cross_sensor_evaluation/` and `docs/uncertainty.md`.
 
 ## Commands — the full pipeline, both window-size configurations
 
@@ -33,7 +49,7 @@ regenerating it) and was removed.
 ```bash
 python -m chewing_ssl.classical_ml.segment --out data/processed/ml_segments --stride-seconds 2.0
 python -m chewing_ssl.classical_ml.extract_features --segments-dir data/processed/ml_segments --out data/processed/ml_features
-python -m chewing_ssl.classical_ml.train --sweep-config configs/train_ml.yaml --features-dir data/processed/ml_features --out-dir checkpoints/train_ml
+python -m chewing_ssl.classical_ml.train --sweep-config src/configs/train_ml.yaml --features-dir data/processed/ml_features --out-dir checkpoints/train_ml
 python -m chewing_ssl.classical_ml.evaluate_bouts \
   --model-path checkpoints/train_ml/best_model.joblib --features-path data/processed/ml_features/test.parquet \
   --run-name rf_4s --model-type random_forest --summary-csv checkpoints/classical_ml_summary.csv
@@ -46,7 +62,7 @@ python -m chewing_ssl.classical_ml.plot_predictions --all \
 ```bash
 python -m chewing_ssl.classical_ml.segment --out data/processed/ml_segments_w2s0.25 --window-seconds 2.0 --stride-seconds 1.5
 python -m chewing_ssl.classical_ml.extract_features --segments-dir data/processed/ml_segments_w2s0.25 --out data/processed/ml_features_w2s0.25
-python -m chewing_ssl.classical_ml.train --sweep-config configs/train_ml.yaml --features-dir data/processed/ml_features_w2s0.25 --out-dir checkpoints/train_ml_w2s0.25
+python -m chewing_ssl.classical_ml.train --sweep-config src/configs/train_ml.yaml --features-dir data/processed/ml_features_w2s0.25 --out-dir checkpoints/train_ml_w2s0.25
 python -m chewing_ssl.classical_ml.evaluate_bouts \
   --model-path checkpoints/train_ml_w2s0.25/best_model.joblib --features-path data/processed/ml_features_w2s0.25/test.parquet \
   --window-seconds 2.0 --run-name rf_2s --model-type random_forest --summary-csv checkpoints/classical_ml_summary.csv
@@ -76,7 +92,7 @@ a dense array up front, with its label attached.
 - **Label**: majority vote over the window's dense per-timestep labels
   (`mean >= 0.5 → 1`), meaning one label per window (not per-timestep;
   classical ML needs a single target per feature vector).
-- **Overlap**: window = 4.0s/2.0s (200 samples/100 samples @ 50Hz from `configs/preprocessing.yaml`).
+- **Overlap**: window = 4.0s/2.0s (200 samples/100 samples @ 50Hz from `src/configs/preprocessing.yaml`).
   `--stride-seconds` controls overlap; the 4s configuration uses **50%** overlap, whereas the 2s configuration uses **25%** overlap, **for every split, including val/test**.
 
 Output: `data/processed/ml_segments/{purpose}_X.npy` (float32,
@@ -128,7 +144,7 @@ regression), saved to `{model}_feature_importance.png` (single-run mode
 only). A learned embedding has no equivalent — you can't ask a contrastive
 encoder "which input statistic mattered."
 
-### 3a. Hyperparameter sweep (`--sweep-config configs/train_ml.yaml`)
+### 3a. Hyperparameter sweep (`--sweep-config src/configs/train_ml.yaml`)
 
 `train.py --sweep-config <path>` trains every combination listed in a YAML
 config (10 RF, 10 LR), each varying the parameters most likely to move performance for

@@ -20,7 +20,7 @@ glasses:
 | **SussexEatingUK** | Bite-level labelled meals | 40 |
 | **FEIT_eating_S05** | Bite-level labelled meals | 36 |
 | **Office_eating_s05** | Bite-level labelled meals | 26 |
-| **Spectacle_NonMeal** | Non-eating background | 91 snippets / 22 participants |
+| **Spectacle_NonMeal** | Non-eating background | 90 snippets / 22 participants |
 
 The first four are lab/field meal recordings with per-bite chewing
 annotations (~27.3 hours combined). All were self-supervised-training input,
@@ -78,7 +78,7 @@ Findings that directly shaped the pipeline:
 ## 3. Preprocessing
 
 Implemented in `preprocess.py` (raw → interim) and `windowing.py` (interim →
-processed), configured via `configs/preprocessing.yaml`. Every recording
+processed), configured via `src/configs/preprocessing.yaml`. Every recording
 goes through the same pipeline, in this order:
 
 1. **Channel selection.** Keep exactly the channels that are (a) present and
@@ -185,7 +185,7 @@ perturbed copy of a window is still fundamentally the same signal, and tell
 it apart from unrelated windows."
 
 Implemented in `ssl/models/augmentation.py`, parameters in
-`configs/augmentation.yaml`. Two families, each applied independently with
+`src/configs/augmentation.yaml`. Two families, each applied independently with
 25% probability per window per training step (https://zitniklab.hms.harvard.edu/projects/TF-C/ and https://www.researchgate.net/publication/392838366_TFFC_time-frequency_fusion_consistency_for_semi-supervised_time_series_classification):
 
 **Time-domain** (operates directly on the 10-channel `(C, T)` window):

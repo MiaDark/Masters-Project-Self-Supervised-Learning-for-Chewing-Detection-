@@ -1,8 +1,8 @@
 
 # Preprocessing
 
-Raw CSV → windowed model input. Implemented in `src/chewing_ssl/data/preprocess.py`
-(raw → interim) and `src/chewing_ssl/data/windowing.py` (interim → processed).
+Raw CSV → windowed model input. Implemented in `src/chewing_ssl/common/data/preprocess.py`
+(raw → interim) and `src/chewing_ssl/common/data/windowing.py` (interim → processed).
 This covers **standard preprocessing only**. Augmentation (TF-C-style
 time/frequency-domain augmentation) is a separate, later stage — see
 [Relationship to augmentation](#relationship-to-augmentation) at the bottom.
@@ -26,7 +26,9 @@ RAW_CHANNELS + DERIVATIVE_CHANNELS` in `preprocess.py`.
 1. **Load + select columns** (`load_recording` + `select_columns`): rename
    to canonical column names (per dataset naming convention), unify the
    label to `1`=chewing/else=not-chewing, keep only `datetime` + the 5 raw
-   channels + `label`.
+   channels + `label`. <br>
+   ***CLIPPING RAW SIGNALS -50 50 and -5000 5000***
+
 2. **Gap segmentation** (`segment_at_gaps`) — a timestamp gap much larger
    than the sampling period means the device was removed or dropped out,
    not a brief pause. Cut into separate segments rather than interpolating

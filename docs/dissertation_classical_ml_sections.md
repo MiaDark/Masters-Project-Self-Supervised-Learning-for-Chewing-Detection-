@@ -30,6 +30,16 @@ and the current contents of `checkpoints/train_ml/`,
 > latest (2026-07-31) update pass, specifically so it can be reviewed and
 > revised later — nothing bold should be taken as fully polished prose
 > yet.**
+>
+> **Newer work not reflected below (post-2026-07-31), read alongside this
+> document for anything current**: a raw-signal clipping fix and a genuine
+> per-sensor (nav-only/accel-only) retrained model family — this document's
+> `rf_4s_80_10_10` model only ever exists as an all-channel model — feeding
+> `checkpoints/cross_sensor_evaluation/CONCLUSION.md` (accuracy under sensor
+> removal) and `docs/uncertainty.md` (predictive uncertainty, both
+> pipelines, all 6 classical-ML channel/norm configs). Full provenance
+> chain across every checkpoint generation, including this document's own:
+> `checkpoints/uncertainty_models/MANIFEST.md`.
 
 ---
 
@@ -333,7 +343,7 @@ search below but not carried through bout-level evaluation).
 
 Rather than training a single hand-picked configuration, model selection is
 performed via an explicit hyperparameter sweep
-(`chewing_ssl.classical_ml.train --sweep-config configs/train_ml.yaml`)
+(`chewing_ssl.classical_ml.train --sweep-config src/configs/train_ml.yaml`)
 over a **20-combination grid**: 10 Random Forest variants (varying
 `n_estimators` ∈ {100, 300, 500}, `max_depth` ∈ {unlimited, 10, 20},
 `min_samples_leaf` ∈ {1, 5, 10}, `max_features` ∈ {`sqrt`, `log2`, 0.3}, and
@@ -363,6 +373,40 @@ bout-level evaluation is run against.
 `class_weight='balanced'` — validation F1 = 0.8232 (verified directly from
 `checkpoints/train_ml/sweep_results.csv`), narrowly ahead of the runner-up
 combinations (see §3.3).
+
+**On what basis Random Forest specifically, over Logistic Regression, stated
+precisely — the win is real but narrower and less repeatedly re-verified
+than it might look.** The 20-combination grid above is a genuine head-to-head:
+against the original 60/20/20 split, `rf_06_regularized_leaf5` (val F1
+0.8232) beats the best Logistic Regression combination,
+`lr_10_C10_liblinear` (val F1 0.8202), by 0.0030 — a real but narrow margin,
+consistent with §3.3's own "17 of 20 combinations land within a 0.81-0.82
+band" observation. **This 20-combination sweep was run exactly once, on
+this original split.** Every later retrain of the classical-ML pipeline —
+the 80/10/10 rerun in this document (§3.1), and a further raw-signal-clipping
+data revision produced after this document was written (`checkpoints/
+uncertainty_models/MANIFEST.md`'s "Gen 3", covering the nav-only/accel-only
+sensor-ablation variants) — reused `rf_06_regularized_leaf5`'s exact
+hyperparameters directly via a single-combination sweep config
+(`src/configs/train_ml_rf06_only.yaml`), rather than re-running the full
+grid each time. This was a deliberate efficiency decision, not an
+oversight — that config file's own comment states it exists to reproduce
+the known winner "without re-running the other 19 combos" — but it does
+mean the RF-over-LR choice was genuinely re-contested only once, not
+re-verified at every later data revision. **The one time a full grid *was*
+rerun on later (80/10/10, clipping-fix-applied) data** — for the
+sensor-ablation study — **Logistic Regression actually won narrowly**
+(val F1 0.845 vs. Random Forest's 0.842), inside the same sub-0.01 plateau
+described above. That later study substituted a dedicated Random-Forest-only
+rerun back in for consistency with every other channel-subset model in its
+own 6-way grid (all of which are Random Forest, since only RF has a natural
+tree-ensemble uncertainty mechanism — see `docs/uncertainty.md`), not
+because Logistic Regression was disqualified on accuracy grounds. The
+honest summary: Random Forest is the project's consistent classical-ML
+model family across every configuration by deliberate choice for continuity
+and downstream uncertainty analysis, grounded in one genuine sweep win at
+the outset — not a claim that it re-wins the sweep every single time it has
+been checked.
 
 **2-second configuration**: rather than re-running the full 20-combination
 sweep at this window size, the 4-second sweep's winning hyperparameter
@@ -408,7 +452,7 @@ statistics) was partly trained on.
 Splitting is computed **independently per dataset** (participant
 identifiers are not comparable across datasets — the same code, e.g.
 `"p01"`, denotes different physical individuals in different studies), with
-a fixed seed (42) for reproducibility. `configs/preprocessing.yaml` has
+a fixed seed (42) for reproducibility. `src/configs/preprocessing.yaml` has
 specified an **80% / 10% / 10%** train/validation/test division since
 before this project's original 60/20/20 results were produced — but
 `windowing.py`'s split-assignment step unconditionally reuses an existing

@@ -1,5 +1,12 @@
 # Bite-Level Evaluation — Unified Architecture
 
+*Newer work not reflected below: a raw-signal clipping fix and genuine
+per-sensor (nav-only/accel-only) retrained models for both pipelines,
+evaluated with this same shared postprocessing/matching code —
+`checkpoints/cross_sensor_evaluation/CONCLUSION.md` and
+`docs/uncertainty.md`. `checkpoints/uncertainty_models/MANIFEST.md` has the
+full checkpoint-generation provenance chain.*
+
 How postprocessing and bout-level evaluation work across **both** pipelines
 (classical ML and SSL masked-reconstruction): why the logic used to be
 duplicated five times, how it's consolidated now, and the one concrete
@@ -48,7 +55,7 @@ python -m chewing_ssl.classical_ml.extract_features \
   --segments-dir data/processed_80_10_10/ml_segments \
   --out data/processed_80_10_10/ml_features
 python -m chewing_ssl.classical_ml.train \
-  --sweep-config configs/train_ml_rf06_only.yaml \
+  --sweep-config src/configs/train_ml_rf06_only.yaml \
   --features-dir data/processed_80_10_10/ml_features \
   --out-dir checkpoints/train_ml_80_10_10
 python -m chewing_ssl.classical_ml.evaluate_bouts \
@@ -237,7 +244,27 @@ instead, which the headline F1 numbers alone can't answer.
 | split | 29 bites (5.5%) | 44 bites (8.4%) |
 | tangle | **243 bites (46.4%)** | 111 bites (21.2%) |
 | missed | 42 bites (8.0%) | 52 bites (9.9%) |
-| false_alarm (predicted bouts) | 30 | 22 |
+| false_alarm (predicted bouts) | 29 | 22 |
+
+*(Re-derived directly from `checkpoints/bite_comparison_ledger_80_10_10.csv`,
+grouping by `cluster_label` — every row above matches exactly except the
+classical-ML false_alarm count, corrected here from a previously-reported 30
+to the verified 29.)*
+
+**A terminology trap worth flagging, found while re-deriving the row
+above**: "false_alarm" here is the *alignment-cluster* count
+(`align_bouts_sequential`, match-mode-**independent** — a predicted bout
+with literally zero temporal overlap with any ground-truth bite). This is a
+much narrower definition than "unmatched predicted bout under whichever
+`--match-mode` built this ledger" (tolerance mode, by `compare_bites.py`'s
+default) — that broader count is **281** (classical ML) and **249** (SSL),
+almost 10x larger, and is what actually feeds `bout_tolerance_precision` in
+§2.1's headline table above (verified: `275/(275+281) = 0.4946` = classical
+ML's `bout_tolerance_precision`; `292/(292+249) = 0.5397` = SSL's). Both
+numbers are legitimate, answering different questions ("bouts touching zero
+ground truth" vs. "bouts not precise enough to count as a tolerance-mode
+match") — but they share a name, so quote the right one for the point being
+made, and don't add them or conflate them with the taxonomy row above.
 
 **The two pipelines fail differently, not just "by different amounts."**
 SSL converts far more bites into clean 1:1 matches (51.3% vs. 32.8%) and
@@ -297,6 +324,17 @@ recordings for both pipelines:
 | **2.0** | **0.731** | **0.527** | 0.746 (worse) |
 | 3.5 | 0.736 | 0.529 | — |
 | 5.0 | 0.727 | 0.501 (declining) | — |
+
+*(Re-derivation note: no standalone sweep-results artifact for this table
+survives on disk — `checkpoints/masked_ablation_summary.csv`'s
+`span_bigru_w200` row is overwritten in place on every rerun, so it now
+reflects the adopted `smooth_window_s=2.0` default, not the pre-fix
+snapshot. The table's two endpoints ARE independently checkable: `0.0` row
+(F1 0.674) and the `2.0` row (F1 0.731, n_pred_bouts 1036) — the latter
+matches the current CSV exactly (`bout_iou_f1=0.731313`,
+`n_pred_bouts=1036`), corroborating the table even though the intermediate
+sweep points (1.0/3.5/5.0) can no longer be independently re-run against
+the original pre-fix model state.)*
 
 Confirms the diagnosis exactly: smoothing helps SSL substantially (mostly by
 cutting false alarms: 1259→1036 predicted bouts) and mildly hurts classical
@@ -401,7 +439,8 @@ the last decimal), and all 130 tests still pass.
   detections, or a learned meta-classifier) has been built or evaluated.
 - **`SussexEatingUK/EMTEQRAP15`'s near-total SSL miss rate** (22 of 23
   bites missed, `docs/ssl_masked.md` §9.4) — checked directly against
-  `checkpoints/ml_bout_ledger_80_10_10.csv`: classical ML detects 11 of the
+  `checkpoints/ml_bout_ledger_80_10_10.csv` (re-verified: 23 GT bites total,
+  11 `detected`/12 `missed`, exact match): classical ML detects 11 of the
   same 23 bites on this exact recording, missing 12. **This is a genuine
   SSL-specific weakness on this recording, not a shared "hard recording"
   both pipelines struggle with equally** — classical ML does roughly as

@@ -8,14 +8,16 @@ preprocessing and labelling depend on them.
 
 ## Structure
 
-| Dataset             | Participants (approx.)   | Leaf file(s)                          |
+| Dataset             | Participants (confirmed via `splits.json`, folders `p01`-`p41` range) | Leaf file(s)                          |
 |----------------------|--------------------------|----------------------------------------|
-| SIPMEatingStudy      | ~35, folders `p01`–`p41` | `sensor_data.csv`                      |
+| SIPMEatingStudy      | 31 | `sensor_data.csv`                      |
 | Spectacle   | `p0`–`p32` per week      | `daily_annotated.csv`                  |
-| SussexEatingUk       | 41                               | `*filename.csv`                        |
+| SussexEatingUk       | 40                               | `*filename.csv`                        |
 | FEIT_eating_S05      | 36                               | `*_sensor_data.csv`                    |
 | Office_eating_s05    | 26                                | `*_annotated_sensor_data.csv`          |
 | Spectacle_NonMeal    | 22 (derived, see below)    | `*_snippetNNN.csv` (+ `manifest.csv`)  |
+
+Participant counts confirmed directly against `data/processed_80_10_10/splits.json`'s per-dataset train+val+test totals (`docs/dissertation_classical_ml_sections.md` §3.1) — supersedes the earlier approximate counts below where they conflict.
 
 FEIT_eating_S05 and Office_eating_s05 are single-temple-device eating recordings.`Spectacle_NonMeal` is not a separately downloaded dataset — it's
 extracted from `Spectacle`, see [Balancing](#balancing-non-eating-data-from-spectacle) below.
@@ -37,7 +39,7 @@ One folder per participant, each containing a single `sensor_data.csv`. The flat
 structure makes this the natural dataset to prototype loaders and the SSL
 pretext tasks against first.
 
-- **Participants:** ~35 present in the range `p01`–`p41`. (*Missing participants had incosistent data*)
+- **Participants:** 31 (confirmed, `splits.json`), drawn from the range `p01`–`p41`. (*Missing participants had inconsistent data*)
 
 ### Spectacle
 One collection week (`week2`), each with participants `p0`–`p32`, and
@@ -131,10 +133,18 @@ Everything else that is needed (LeftTemple Nav X/Y, all 3 accelerometer axes) is
 ## Splits and provenance
 
 - **Splitting:** all train/validation/test splits must be **subject-disjoint**
-  (see [decision 003](decisions/003-subject-disjoint-splits.md)). Hold out
+  (see [decision 003](decisions/003_subject_disjoint_splits.md)). Hold out
   whole participants, never windows.
 - **Ethics / consent:** record the study approvals and the data-sharing terms
   with Emteq Labs here. *To complete.*
 
 ## Next steps
-- [ ] Normalization / standardization (per-channel, computed subject-disjoint per the split above).
+
+- [x] ~~Normalization / standardization~~ — done; global per-channel z-score, fit on
+  train-split-only participants, documented in full in `docs/preprocessing.md`.
+- [ ] Ethics / consent documentation above (*to complete*).
+- [ ] Clipping (physical sensor-range clipping, `docs/preprocessing.md`) was applied to a
+  regenerated data tree after this document's original numbers were produced
+  (`checkpoints/uncertainty_models/MANIFEST.md`'s Gen 3) — confirm whether this datasheet's
+  scaling/clipping description above should be read as describing the current default tree or
+  the pre-clipping one; not fully reconciled here.

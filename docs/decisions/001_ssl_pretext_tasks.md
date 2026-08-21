@@ -2,6 +2,15 @@
 
 - **Status:** Accepted
 - **Date:** _set when committed_
+- **Implementation status** (added retrospectively): masked signal
+  reconstruction is fully implemented and is this project's primary
+  result (`docs/ssl_masked.md`). **Cross-sensor prediction was never
+  implemented** — tracked as an open item in `docs/ssl_masked.md` §12, not
+  to be confused with the cross-sensor *ablation* study (§11 of that
+  document), which evaluates the masked-reconstruction model under sensor
+  removal rather than building the cross-sensor-prediction pretext task
+  this decision specified. Contrastive learning, rejected below, was later
+  reconsidered — see decision [004](004_contrastive_pretext_task.md).
 
 ## Context
 

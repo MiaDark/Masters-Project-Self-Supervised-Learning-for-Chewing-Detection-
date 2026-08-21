@@ -416,22 +416,40 @@ output against classical ML's directly on the same ground-truth bites.
 engine, `chewing_ssl.common.evaluation.sweep`). It has been exercised
 exploratorily against the 80/10/10 `span_bigru_w200` checkpoint
 (`checkpoints/postprocess_sweep_masked_80_10_10.csv`): coordinate descent
-found `high=0.80` (up from 0.75), `max_gap_s=0.5` (down from 1.0),
-`max_dur_s=40.0` (up from 35.0), `valley_thresh` disabled, and
-`envelope_prominence=2.0` (down from 2.5) improve `bout_tolerance_f1` from
-0.548 to 0.553 and `bout_iou_f1` from 0.766 to 0.756 relative to the
-defaults used for §9's headline numbers below. **This has not been adopted
-as this pipeline's new default** — it is reported here as an available
-finding, exactly parallel to classical ML's own not-yet-adopted re-tuning
-(`docs/dissertation_classical_ml_sections.md` §4.6) — a joint decision on
-whether to promote either pipeline's re-tuned recipe (keeping both
-pipelines on one shared recipe, per §6's design principle) is still open.
+found `high=0.80` (up from 0.75), `max_gap_s=0.5` (tied with 1.0/1.5 at
+identical F1 — not a measured improvement over the default, just where the
+tie landed), `max_dur_s=40.0` (up from 35.0), `valley_thresh` disabled
+(no effect, as usual), and `envelope_prominence=2.0` (down from 2.5) raise
+`bout_tolerance_f1` from 0.548 to **0.553**.
+
+**Correction, re-derived directly from the sweep CSV**: the same document
+originally reported this recipe as *also* raising `bout_iou_f1` to 0.756 —
+re-checking the raw sweep log directly (not just the final row) shows this
+is wrong, and traceable to exactly the failure mode
+`docs/dissertation_classical_ml_sections.md` §4.6 already calls out for the
+analogous classical-ML sweep: *an intermediate step's peak value quoted as
+if it were the final combined recipe's own result*. Tracing the actual
+coordinate-descent path: after the `max_dur_s=40.0` step, `bout_iou_f1`
+does briefly peak at 0.756 (row 19 of the CSV) — but the *final* step,
+`envelope_prominence=2.0` (chosen because it improves `bout_tolerance_f1`
+from 0.552 to 0.553, the metric this sweep optimizes for), **trades some of
+that back**: at the actual final combined configuration (CSV row 25),
+`bout_iou_f1` is **0.752**, not 0.756 — a net *decrease* from the §9
+baseline's 0.766, not an improvement. So the honest summary is a real
+trade-off, not a clean win on both metrics: `bout_tolerance_f1` improves
+(0.548→0.553) at the cost of `bout_iou_f1` (0.766→0.752). **This has not
+been adopted as this pipeline's new default** — it is reported here as an
+available finding, exactly parallel to classical ML's own not-yet-adopted
+re-tuning (`docs/dissertation_classical_ml_sections.md` §4.6) — a joint
+decision on whether to promote either pipeline's re-tuned recipe (keeping
+both pipelines on one shared recipe, per §6's design principle) is still
+open.
 
 ## 9. The 80/10/10 rerun
 
 ### 9.1 What changed in the split, and why
 
-`configs/preprocessing.yaml` has specified an 80/10/10 train/validation/test
+`src/configs/preprocessing.yaml` has specified an 80/10/10 train/validation/test
 participant split since before this project's original results were
 produced, but `windowing.py`'s split-assignment step unconditionally reuses
 an existing `splits.json` rather than regenerating it from the current
@@ -500,11 +518,17 @@ early-stopped at **42 epochs**, best validation reconstruction loss
 matching the default `--early-stop-patience 7`).
 
 **Fine-tuning** (`checkpoints/finetune_masked_80_10_10/span_bigru_w200_history.json`):
-45 total epoch-entries across the 3 unfreezing phases, best validation F1
+45 total epoch-entries across the 3 unfreezing phases (re-verified: 10 in
+phase 1, 15 in phase 2, 20 in phase 3, summing to 45), best validation F1
 **0.821**, held-out `finetune_test` metrics: accuracy 0.905, precision
 0.832, recall 0.820, **F1 0.826**, AUC 0.957. Checkpoint loaded for bout
-evaluation: phase 3, epoch 13 (0-indexed within that phase), val_f1=0.821 —
-matching `evaluation_report.md`'s own header exactly.
+evaluation: phase 3, epoch 13 — **correction**: this is the console
+report's 1-indexed *display* value (`evaluate_bouts.py` prints
+`meta['epoch'] + 1`); the raw, 0-indexed epoch actually stored in the
+history JSON for this checkpoint (the entry with the best `val_f1`, 0.821)
+is **epoch 12**, not 13. `evaluation_report.md`'s own header does say
+"epoch=13" verbatim, so that specific number is quoted correctly — it was
+just mislabeled here as the 0-indexed value when it's the display one.
 
 ### 9.4 Bout-level results
 
@@ -578,7 +602,12 @@ mean **0.658** (median 0.678).
 | §6 smoothing fix applied | span_bigru_w200, old masking, smooth=2.0s | 60/20/20 | 0.731 | 0.527 |
 | §5 best tuning candidate | tune_cap_h96_l3, new masking | 60/20/20 | 0.731 | 0.514 |
 | §9 80/10/10 rerun | span_bigru_w200, h96/l3, new masking | **80/10/10** | **0.766** | **0.548** |
-| §8 postprocess re-sweep (not adopted) | same model, re-tuned recipe | 80/10/10 | 0.756 | 0.553 |
+| §8 postprocess re-sweep (not adopted) | same model, re-tuned recipe | 80/10/10 | 0.752* | 0.553 |
+
+*(\*corrected from a previously-reported 0.756 — see §8's correction: the
+sweep's own coordinate-descent log shows 0.756 was an intermediate peak
+after one step, traded away by the following step, not the final combined
+recipe's actual result.)*
 
 **The 80/10/10 rerun is the best-performing configuration on record for
 this pipeline on both bout-level metrics**, ahead of every 60/20/20 result
@@ -591,12 +620,139 @@ capacity choice, since both changed at once. Disentangling them (e.g.
 retraining the *original* h64/l2, old-masking configuration under 80/10/10
 too) is flagged as a natural follow-up, not done here.
 
-## 11. Open items / not yet done
+## 11. Cross-sensor ablation: does the model need every sensor?
+
+Decision 001 named the energy/sensor-selection question as a project goal
+from the start; this is where it's actually answered for this pipeline —
+across two rounds of increasingly rigorous methodology.
+
+### 11.1 Round 1 — zero-ablation on an already-jointly-trained model (superseded)
+
+The cheap first attempt (`checkpoints/cross_sensor_ablation.md`): take the
+§9 headline `span_bigru_w200` checkpoint (trained on all 10 channels) and,
+at *inference* time only, zero out one modality's channels
+(`predict_new_recording.py --only {nav,accel}`) — no retraining. Native
+80/10/10 test split, pooled: all-channels bout IoU F1 0.772; **nav-only
+0.767** (barely different — nav carries almost all the signal this model
+actually uses); **accel-only: exactly 0 predicted bouts**, in every
+condition tested (10 dataset×model runs + 2 on the `s11_feit_eating`
+cohort, §11.3). Read at face value this looks like "the model can't detect
+chewing from accelerometer alone" — **that reading is wrong**, and the next
+round shows why: the postprocessing hysteresis threshold (0.75) was tuned
+against the *joint* 10-channel probability distribution, and zeroing 5 of
+10 input channels the model was never trained to see zeroed pushes its
+output probabilities into a range that threshold never opens a bout for.
+This is an artifact of *ablating* a jointly-trained model, not a genuine
+capability limit — confirmed directly by round 2.
+
+### 11.2 Round 2 — genuinely retrained per-sensor models
+
+`checkpoints/cross_sensor_evaluation/` retrains real models — not
+inference-time ablations — for `masked_ssl` (this pipeline) and
+`classical_ml`, crossed with 2 normalization schemes (global / per-file) and
+3 channel subsets (all / nav-only / accel-only): **6 masked_ssl checkpoints
+in total**, all `span_bigru_w200` architecture, all following a raw-signal
+clipping fix (`docs/data.md`'s Clipping section) applied after §9's
+checkpoint was trained — **these are NOT the same checkpoint §9's headline
+numbers came from**, even the "global/all" one; see
+`checkpoints/uncertainty_models/MANIFEST.md` for the full generation
+provenance if you need to trace which file backs which number in this
+document. `docs/uncertainty.md` reuses this exact checkpoint family for its
+own MC-Dropout analysis.
+
+**Native 80/10/10 test split** (524 GT bites,
+`checkpoints/cross_sensor_evaluation/summary.csv`):
+
+| Config | bout IoU F1 | bout tolerance F1 | classical_ml IoU F1 (same config, for reference) |
+|---|---|---|---|
+| global, all | 0.772 | 0.560 | 0.769 |
+| global, nav-only | 0.758 | 0.539 | 0.721 |
+| global, accel-only | 0.635 | 0.400 | 0.673 |
+| per-file, all | 0.777 | 0.521 | 0.748 |
+| per-file, nav-only | 0.694 | 0.475 | 0.745 |
+| per-file, accel-only | 0.698 | 0.496 | 0.646 |
+
+Every accel-only masked_ssl variant now genuinely predicts (513-581
+predicted bouts, not 0) — round 1's "0 predictions" finding is fully
+superseded, confirmed a zero-ablation artifact as suspected. On raw native
+accuracy, accel-only is clearly the weakest channel subset for this
+pipeline (0.635-0.698 vs. 0.694-0.777 for the other configs) but far from
+non-functional.
+
+### 11.3 Generalization: the `s11_feit_eating` cohort — the more important result
+
+The native test split can't distinguish "genuinely learned chewing
+dynamics" from "learned this specific recording setup's quirks" — both
+score well on data drawn from the same studies the model trained on. The
+`s11_feit_eating` cohort (878 GT bites, a right-temple-substitute sensor
+placement — **explicitly unvalidated**, per that dataset's own note, so
+treat absolute numbers cautiously; the *relative* comparison across these
+12 identically-evaluated models is sound) is the closer thing to a genuine
+domain-shift test available in this project:
+
+| Config | Native IoU F1 | s11 IoU F1 | Relative drop |
+|---|---|---|---|
+| global, all | 0.772 | 0.654 | 15.2% |
+| global, nav-only | 0.758 | 0.646 | 14.8% |
+| **global, accel-only** | 0.635 | **0.120** | **81.1%** |
+| per-file, all | 0.777 | 0.551 | 29.1% |
+| per-file, nav-only | 0.694 | 0.618 | 10.9% |
+| **per-file, accel-only** | 0.698 | **0.209** | **70.1%** |
+
+**The two accel-only variants are dramatic, isolated outliers.** Every
+other masked_ssl configuration degrades by a modest, unremarkable
+10.9-29.1% under this domain shift — in the same range classical ML's own
+variants show (1.7-19.2%, `docs/dissertation_classical_ml_sections.md`).
+The accel-only pair loses 70-81% of their native performance, collapsing to
+0.12-0.21 IoU F1. This is *specific to masked_ssl's accel-only
+representations* — classical ML's accel-only models do **not** show this
+collapse (1.7-4.4% drop, the *most* robust configs in its own grid) — so
+it isn't "accelerometer-only chewing detection is inherently harder under
+domain shift" in general, it's specific to what this pretext task learns
+from accelerometer signal alone. Plausible reading: masked reconstruction
+on accel-only input may pick up low-level statistical regularities of this
+specific hardware/participant pool rather than the physically-invariant
+motion signature of chewing — there's no label pushing the representation
+toward something that survives a sensor-placement shift, unlike classical
+ML's hand-engineered, domain-expert-chosen feature families. `global_accel`
+predicts only 171 bouts against 878 GT bites on s11 (vs. 543-1140 for every
+other condition) — not randomly wrong, barely firing at all; its output
+rarely climbs high enough to clear the tuned hysteresis-start threshold on
+unfamiliar accel-only input, the same underlying mechanism §11.1's
+zero-ablation round surfaced, now confirmed on a model that was never fed
+nav data at all (so it can't be dismissed as an ablation artifact this
+time). Per-file normalization measurably softens this (0.209 vs. 0.120,
+~74% relatively better retained) but doesn't fix it — still losing over
+two-thirds of native performance either way.
+
+**Ties directly to `docs/uncertainty.md`**: the same accel-only
+configurations are also the ones whose predictive uncertainty is least
+trustworthy (lowest AUROC for "does uncertainty predict error", among all
+12 models in that document's grid) — accuracy *and* confidence degrade
+together under sensor removal specifically for accel-only, not
+independently.
+
+### 11.4 What this means for sensor selection
+
+If a deployment has to drop one sensor for energy savings (the original
+project motivation), the evidence across both rounds says: **drop
+accelerometer, keep navigation** — nav-only costs relatively little
+accuracy (native 0.758 vs. 0.772 all-channel) and, critically, generalizes
+about as well as the full-channel model (14.8% drop, in the unremarkable
+range). Accelerometer-only is the one configuration that looks acceptable
+on the native test split but is not to be trusted under any real deployment
+shift, for this pipeline specifically — a conclusion the F1 numbers alone
+would not have surfaced without the s11 comparison.
+
+## 12. Open items / not yet done
 
 - **Cross-sensor prediction (decision 001's second pretext task) isn't
   implemented.** Only masked reconstruction (channel/span) exists; decision
   001 specified *both* masked reconstruction *and* cross-sensor prediction
-  as candidate pretext tasks.
+  as candidate pretext tasks. (Not to be confused with §11's cross-sensor
+  *ablation* — that's an evaluation-time sensor-removal study on the
+  existing masked-reconstruction model, not this still-unbuilt pretext
+  task.)
 - **Postprocessing parameters have no held-out validation split** — same
   pre-existing gap classical ML's own docs flag
   (`docs/dissertation_classical_ml_sections.md` §4.7): tuned/re-tuned
@@ -617,4 +773,296 @@ too) is flagged as a natural follow-up, not done here.
   masking-strategy change" — three things that all changed simultaneously
   between the ablation baseline and the current best result.
 - `SussexEatingUK/EMTEQRAP15`'s near-total miss rate (§9.4) has not been
-  investigated.
+  investigated — though `docs/uncertainty.md` finding 5 has since narrowed
+  down *what's* uninformative there (epistemic uncertainty specifically,
+  for the whole recording), if not *why*.
+- **§11's accel-only generalization collapse has not been root-caused**,
+  only characterized and confirmed real (not an ablation artifact). Whether
+  it's fixable (e.g. accel-specific augmentation, a physically-motivated
+  regularizer) or an inherent limit of masked reconstruction on this
+  channel subset is untested.
+- **The energy-consumption half of the original sensor-selection framing is
+  still unbuilt** (`src/chewing_ssl/energy/` is an empty stub) — §11
+  answers "does accuracy/generalization hold up," not yet "what does each
+  sensor configuration actually cost to run."
+
+
+
+### Bi-GRU explanation
+#### What is a Bi-GRU?
+Bi-GRU stands for Bidirectional Gated Recurrent Unit. It is a type of recurrent neural network (RNN) designed for sequential data such as: Time series, Speech, Text, Sensor signals (chewing detection data) <br>
+The two important parts are: <br>
+- GRU (Gated Recurrent Unit) → remembers important information over time.
+- Bidirectional → processes the sequence both forwards and backwards.
+
+1. What is a GRU?
+- A standard neural network sees each sample independently.
+- A GRU is different because it processes a sequence one timestep at a time and maintains a hidden state that acts as memory.
+- For a sensor window: <br>
+t1 → t2 → t3 → t4 → ... → t200<br>
+At timestep t50, the GRU knows:
+the current sensor values
+what happened at timesteps 1–49
+This makes it good at detecting patterns that evolve over time.
+
+Why use gates? <br>
+- Traditional RNNs suffer from vanishing gradients and struggle to remember long-term information.
+- GRUs solve this using two gates: <br>
+Update Gate. Determines: How much of the old memory should I keep? <br>
+Reset Gate. Determines: How much of the past should I ignore? <br>
+- This allows the network to: remember chewing rhythms, forget irrelevant movements, focus on useful temporal patterns.
+
+## How the Bi-GRU Works in the SSL Pipeline
+
+### Input Representation
+
+Each training example is a preprocessed sensor window with shape:
+
+```text
+(B, n_channels, T)
+```
+
+where:
+
+- **B** = batch size
+- **n_channels** = 10 sensor channels
+- **T** = 200 timesteps (4-second window at 50 Hz)
+
+Before entering the GRU, the tensor is transposed to:
+
+```text
+(B, T, n_channels)
+```
+
+so that each timestep is represented by a vector containing all sensor measurements at that moment.
+
+---
+
+### Step 1: Masking
+
+During self-supervised pretraining, approximately 40% of the timesteps are hidden using span masking. The masked values are replaced with a learnable mask token.
+
+For example:
+
+```text
+Original:
+x1 x2 x3 x4 x5 x6 x7 x8
+
+Masked:
+x1 x2 [MASK] [MASK] x5 x6 x7 x8
+```
+
+The model is then asked to reconstruct the missing values using the surrounding context.
+
+---
+
+### Step 2: Bidirectional Encoding
+
+The masked sequence is passed through a Bidirectional GRU (Bi-GRU).
+
+The encoder consists of two GRUs:
+
+1. **Forward GRU** – processes the sequence from start to end.
+2. **Backward GRU** – processes the sequence from end to start.
+
+```text
+Forward:
+t1 → t2 → t3 → ... → t200
+
+Backward:
+t200 → t199 → t198 → ... → t1
+```
+
+At every timestep, the hidden states from both directions are concatenated:
+
+```text
+h_t = [forward_hidden_t ; backward_hidden_t]
+```
+
+This means that each timestep representation contains information from both the past and the future, allowing the model to use context on both sides of a masked region.
+
+---
+
+### Step 3: Contextual Feature Representation
+
+The encoder output has shape:
+
+```text
+(B, T, 2 × hidden_size)
+```
+
+For the final model:
+
+```text
+hidden_size = 96
+```
+
+therefore:
+
+```text
+Encoder output shape = (B, T, 192)
+```
+
+Each timestep is represented by a 192-dimensional contextual embedding that captures temporal patterns across the entire window.
+
+Unlike a CNN autoencoder, the Bi-GRU does not downsample the sequence, so there is no loss of temporal resolution. A representation is produced for every timestep.
+
+---
+
+### Step 4: Reconstruction Head
+
+A linear layer is applied independently to every timestep:
+
+```text
+192-dimensional embedding
+        ↓
+Linear layer
+        ↓
+10 reconstructed channels
+```
+
+This converts the encoder output:
+
+```text
+(B, T, 192)
+```
+
+into:
+
+```text
+(B, T, 10)
+```
+
+which represents the reconstructed sensor signal.
+
+---
+
+### Step 5: Reconstruction Loss
+
+The reconstructed signal is compared with the original signal.
+
+Importantly, the reconstruction loss is calculated **only on the masked positions**:
+
+```text
+Loss = MSE(masked positions only)
+```
+
+This prevents the model from simply copying the visible parts of the input and forces it to learn meaningful temporal and cross-sensor relationships.
+
+---
+
+### Why Bi-GRU is Suitable for Masked Reconstruction
+
+The masked reconstruction task requires the model to infer missing sensor values from surrounding context. A Bi-GRU is particularly well suited to this because:
+
+- It explicitly models sequential dependencies.
+- It has access to both past and future context through bidirectional processing.
+- It preserves full temporal resolution by producing an embedding for every timestep.
+- Its per-timestep representations align naturally with the objective of predicting masked regions.
+
+As a result, the Bi-GRU learns rich contextual representations during self-supervised pretraining that can later be transferred to the downstream chewing-detection task through fine-tuning.
+
+
+## Fine-Tuning for Chewing Detection
+### Overview
+After self-supervised pretraining, the Bi-GRU encoder has learned contextual representations of the sensor signals through the masked reconstruction task. However, the encoder has not yet learned to distinguish chewing from non-chewing behaviour because no labels were used during pretraining.
+To adapt the pretrained encoder to the chewing-detection task, a supervised fine-tuning stage is performed. The pretrained encoder is combined with a lightweight classification head and trained using labelled chewing data.
+
+### Loading the Pretrained Encoder
+The fine-tuning pipeline begins by loading the checkpoint produced during SSL pretraining.
+The checkpoint stores:
+- the encoder architecture (Bi-GRU)
+- the masking strategy used during pretraining
+- window length
+- model hyperparameters
+- pretrained encoder weights <br>
+This allows the fine-tuning script to reconstruct the encoder automatically without requiring architecture-specific code.
+
+### Chewing Detection Head
+A binary classification head is attached to the pretrained encoder.
+The encoder produces a contextual embedding for every timestep:
+(B, T, D)
+where:
+- B = batch size
+- T = number of timesteps
+- D = embedding dimension <br>
+For the final Bi-GRU model:
+- D = 192
+These embeddings are passed through a multi-layer perceptron consisting of:
+Linear <br>
+ ↓ <br>
+GELU <br>
+ ↓ <br>
+Dropout <br>
+ ↓ <br>
+Linear <br>
+ ↓ <br>
+GELU <br>
+ ↓<br>
+Linear<br>
+which outputs a single chewing logit for every timestep.
+The final output therefore has shape:
+(B, T)
+where each value represents the model's confidence that the corresponding timestep belongs to a chewing event.
+
+### Binary Chewing Classification
+The chewing detector is trained as a binary classification problem.
+For each timestep:
+- 0 = non-chewing
+- 1 = chewing <br>
+The model outputs logits which are converted to probabilities using the sigmoid function.
+Training uses Binary Cross-Entropy with Logits Loss (BCEWithLogitsLoss), which combines sigmoid activation and binary cross-entropy into a numerically stable objective.
+
+### Handling Class Imbalance
+Chewing occupies only a small fraction of the recorded sensor data.
+To compensate for this imbalance, a positive-class weight is computed from the training set:
+`pos_weight = (non-chewing fraction) / (chewing fraction)`
+This increases the penalty for misclassifying chewing samples and encourages the model to learn the minority class more effectively.
+
+### Three-Phase Gradual Unfreezing
+Fine-tuning is performed using a gradual-unfreezing strategy rather than updating the entire encoder immediately.
+The motivation is to preserve the useful representations learned during self-supervised pretraining while progressively adapting them to the chewing-detection task.
+
+#### Phase 1: Frozen Encoder
+In the first stage, all encoder parameters are frozen. <br>
+- Bi-GRU encoder  → frozen <br>
+- Classification head → trainable <br>
+Only the newly added chewing-classification head is trained. This allows the head to learn how to use the pretrained representations without altering them.
+
+#### Phase 2: Last Encoder Layer Unfrozen
+In the second stage, only the final Bi-GRU layer is unfrozen. <br>
+- Bi-GRU layer 1 → frozen <br>
+- Bi-GRU layer 2 → frozen <br> 
+- Bi-GRU layer 3 → trainable <br>
+- Classification head → trainable <br>
+A lower learning rate is used for the encoder than for the classification head.
+This allows higher-level representations to adapt to chewing detection while preserving lower-level temporal features learned during SSL pretraining.
+
+#### Phase 3: Full Fine-Tuning
+In the final stage, the entire Bi-GRU encoder is unfrozen. <br>
+- All encoder layers → trainable
+- Classification head → trainable
+An even smaller learning rate is used for the encoder to avoid catastrophic forgetting of the pretrained representations.
+
+### Optimisation
+Training uses the AdamW optimiser. Different learning rates are assigned to different parts of the network:
+- Component	Learning Rate
+- Classification head	1 × 10⁻³
+- Last encoder block	1 × 10⁻⁴
+- Full encoder fine-tuning	3 × 10⁻⁵ <br>
+A cosine annealing learning-rate schedule is applied during each phase, gradually reducing the learning rate throughout training.
+Gradient clipping is also applied to improve optimisation stability.
+
+### Model Selection
+After each epoch, performance is evaluated on the validation set.
+The model checkpoint is selected using validation F1-score rather than validation loss because F1-score is more representative of chewing-detection performance under class imbalance.
+The checkpoint with the highest validation F1-score is saved and later used for final testing.
+
+### Evaluation Metrics
+Performance is evaluated using:
+- Accuracy
+- Precision
+- Recall
+- F1-score
+- Area Under the ROC Curve (AUC) <br>
+All metrics are computed at the timestep level using the predicted chewing probabilities.
