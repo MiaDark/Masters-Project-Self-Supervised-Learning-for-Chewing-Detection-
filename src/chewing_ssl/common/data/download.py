@@ -99,9 +99,8 @@ def participant_prefixes(s3, bucket, base_prefix, dataset, ds_cfg) -> list[tuple
         for folder in list_subfolders(s3, bucket, parent):
             num = participant_number(folder, pattern)
 
-            if wanted is not None:
-                if num is None or num not in wanted:
-                    continue
+            if wanted is not None and (num is None or num not in wanted):
+                continue
 
             label = f"{parent[len(dataset_prefix) :]}{folder}".strip("/")
             selected.append((label, f"{parent}{folder}/"))
@@ -236,13 +235,14 @@ def execute_plan(s3, bucket, plan, skip_existing, dry_run) -> None:
     if not all_items:
         return
 
-    downloaded = skipped = 0
+    downloaded = would_download = skipped = 0
     for item in tqdm(all_items, desc="Downloading", unit="file", disable=dry_run):
         if skip_existing and item.target.exists() and item.target.stat().st_size == item.size:
             skipped += 1
             continue
         if dry_run:
             print(f"[dry-run] {item.key} -> {item.target}")
+            would_download += 1
             continue
         item.target.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -252,7 +252,7 @@ def execute_plan(s3, bucket, plan, skip_existing, dry_run) -> None:
             tqdm.write(f"WARNING: failed {item.key} -- {exc}")
 
     verb = "would download" if dry_run else "downloaded"
-    print(f"\nDone: {verb} {downloaded if dry_run else downloaded} file(s), skipped {skipped}.")
+    print(f"\nDone: {verb} {would_download if dry_run else downloaded} file(s), skipped {skipped}.")
 
 
 def list_participants(s3, cfg, datasets_filter) -> None:

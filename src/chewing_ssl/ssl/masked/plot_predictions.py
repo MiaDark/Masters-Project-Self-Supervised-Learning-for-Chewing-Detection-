@@ -32,10 +32,18 @@ import pandas as pd
 from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS
 from chewing_ssl.common.data.windowing import TARGET_HZ
 from chewing_ssl.common.evaluation.bouts import extract_bouts, match_bouts, match_bouts_tolerant
-from chewing_ssl.common.evaluation.pipeline import add_postprocess_args, postprocess_config_from_args
+from chewing_ssl.common.evaluation.pipeline import (
+    add_postprocess_args,
+    postprocess_config_from_args,
+)
 from chewing_ssl.common.evaluation.plotting import gt_panel, plot_bout_panels, pred_panel
 from chewing_ssl.common.evaluation.postprocess import apply_full_postprocessing, compute_envelope
-from chewing_ssl.ssl.masked.evaluate_bouts import ENVELOPE_CHANNELS, FS, infer_recording, load_finetuned_model
+from chewing_ssl.ssl.masked.evaluate_bouts import (
+    ENVELOPE_CHANNELS,
+    FS,
+    infer_recording,
+    load_finetuned_model,
+)
 
 
 def plot_recording(
@@ -126,10 +134,18 @@ def plot_recording(
     else:
         ylabel = "nav (raw, clipped)"
     plot_bout_panels(
-        t, plot_df["nav_x_left_temple"], plot_df["nav_y_left_temple"], panels, suptitle, out_path,
-        ylim=ylim, ylabel=ylabel,
+        t,
+        plot_df["nav_x_left_temple"],
+        plot_df["nav_y_left_temple"],
+        panels,
+        suptitle,
+        out_path,
+        ylim=ylim,
+        ylabel=ylabel,
     )
-    print(f"  Saved  ->  {out_path}  ({n_detected}/{len(gt_bouts)} detected, {n_false_alarm} false alarms)")
+    print(
+        f"  Saved  ->  {out_path}  ({n_detected}/{len(gt_bouts)} detected, {n_false_alarm} false alarms)"
+    )
     return True
 
 
@@ -138,7 +154,9 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--interim-root", type=Path, default=Path("data/interim_normalized"))
     parser.add_argument(
-        "--raw-interim-root", type=Path, default=None,
+        "--raw-interim-root",
+        type=Path,
+        default=None,
         help="If given, the plotted nav_x/nav_y trace is read from this tree instead of "
         "--interim-root (e.g. data/interim_clipped for raw-scale/clipped units) -- model "
         "inference still uses --interim-root, since the checkpoint needs normalized input. "
@@ -156,7 +174,9 @@ def main() -> None:
         default=None,
         help="Window length the checkpoint was fine-tuned on, if different from the default.",
     )
-    parser.add_argument("--out", type=Path, default=Path("checkpoints/plots/masked_predictions/predictions.png"))
+    parser.add_argument(
+        "--out", type=Path, default=Path("checkpoints/plots/masked_predictions/predictions.png")
+    )
     parser.add_argument("--all", action="store_true", help="Plot every finetune_test recording.")
     parser.add_argument(
         "--out-dir", type=Path, default=Path("checkpoints/plots/masked_predictions/all")
@@ -195,18 +215,18 @@ def main() -> None:
         f"pretext_task={meta['pretext_task']}  window={window_len} samples  val_f1={meta['val_f1']:.3f}"
     )
 
-    kwargs = dict(
-        window_len=window_len,
-        cfg=cfg,
-        min_bout_dur=args.min_bout_dur,
-        raw=args.raw,
-        threshold=args.threshold,
-        match_mode=args.match_mode,
-        tolerance_s=args.tolerance_s,
-        iou_thresh=args.iou_thresh,
-        ylim=tuple(args.ylim) if args.ylim else None,
-        channels=meta["channels"],
-    )
+    kwargs = {
+        "window_len": window_len,
+        "cfg": cfg,
+        "min_bout_dur": args.min_bout_dur,
+        "raw": args.raw,
+        "threshold": args.threshold,
+        "match_mode": args.match_mode,
+        "tolerance_s": args.tolerance_s,
+        "iou_thresh": args.iou_thresh,
+        "ylim": tuple(args.ylim) if args.ylim else None,
+        "channels": meta["channels"],
+    }
 
     idx = pd.read_parquet(args.processed_root / "index" / "finetune_test.parquet")
     if args.dataset:
@@ -220,17 +240,24 @@ def main() -> None:
             seg_dir = args.interim_root / dataset / tag
             seg_paths = sorted(seg_dir.glob("segment_*.parquet"))
             if not seg_paths:
-                print(f"  [warn] no segment_*.parquet found under {seg_dir} -- check --interim-root")
+                print(
+                    f"  [warn] no segment_*.parquet found under {seg_dir} -- check --interim-root"
+                )
             for seg_path in seg_paths:
                 label = f"{dataset}/{tag}" + (f"/{seg_path.stem}" if len(seg_paths) > 1 else "")
                 out_path = args.out_dir / f"{dataset}_{tag}_{seg_path.stem}.png"
                 raw_seg_path = (
                     args.raw_interim_root / dataset / tag / seg_path.name
-                    if args.raw_interim_root else None
+                    if args.raw_interim_root
+                    else None
                 )
-                if plot_recording(model, seg_path, label, out_path, raw_seg_path=raw_seg_path, **kwargs):
+                if plot_recording(
+                    model, seg_path, label, out_path, raw_seg_path=raw_seg_path, **kwargs
+                ):
                     n_plotted += 1
-        print(f"\nDone. {n_plotted} plot(s) written (across {len(tags)} participant(s)) -> {args.out_dir}/")
+        print(
+            f"\nDone. {n_plotted} plot(s) written (across {len(tags)} participant(s)) -> {args.out_dir}/"
+        )
         return
 
     if not (args.dataset and args.tag and args.segment):

@@ -41,11 +41,9 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-import torch
 
 from chewing_ssl.classical_ml.extract_features import DRIVERS, extract_features, sanitize
 from chewing_ssl.classical_ml.segment import segment_recording
-from chewing_ssl.classical_ml.train import META_COLUMNS
 from chewing_ssl.classical_ml.upscale_predictions import upscale_recording
 from chewing_ssl.common.data.eda import discover_recordings
 from chewing_ssl.common.data.loaders import ACCEL_COLS, DATASET_SPECS
@@ -66,7 +64,6 @@ from chewing_ssl.common.evaluation.pipeline import (
     aggregate_alignment,
     aggregate_dual_mode,
     append_summary_row,
-    build_bite_ledger,
     build_summary_row,
     evaluate_recording,
     postprocess_config_from_args,
@@ -224,7 +221,9 @@ def predict_classical_ml(
 # ── Stage 2b: masked-SSL prediction (no upscaling needed) ──────────────────
 
 
-def predict_masked_ssl(seg_path: Path, model, window_len: int, channels: list[str] = SENSOR_CHANNELS) -> dict:
+def predict_masked_ssl(
+    seg_path: Path, model, window_len: int, channels: list[str] = SENSOR_CHANNELS
+) -> dict:
     """One normalized segment -> {gt, probs, envelope} via the masked-SSL
     path: the model predicts one probability per TIMESTEP directly
     (ChewingDetector.forward returns (B, T)) by sliding non-overlapping
@@ -246,47 +245,66 @@ def predict_masked_ssl(seg_path: Path, model, window_len: int, channels: list[st
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
-        "--model", required=True, choices=["classical_ml", "masked_ssl"],
+        "--model",
+        required=True,
+        choices=["classical_ml", "masked_ssl"],
         help="Which pipeline's best 80/10/10 model to run inference with.",
     )
     parser.add_argument(
-        "--input", type=Path, nargs="+", default=None,
+        "--input",
+        type=Path,
+        nargs="+",
+        default=None,
         help="One or more raw recording CSV(s) to run inference on. Mutually exclusive "
         "with --from-split.",
     )
     parser.add_argument(
-        "--from-split", type=Path, default=None,
+        "--from-split",
+        type=Path,
+        default=None,
         help="Path to a splits.json; auto-discovers --dataset's raw files for --purpose "
         "(via chewing_ssl.common.data.eda.discover_recordings) instead of --input. Since "
         "splits.json spans multiple source datasets each with their own column convention, "
         "this still runs one --dataset at a time.",
     )
     parser.add_argument(
-        "--purpose", choices=["train", "val", "test"], default="test",
+        "--purpose",
+        choices=["train", "val", "test"],
+        default="test",
         help="Only used with --from-split.",
     )
     parser.add_argument(
-        "--raw-root", type=Path, default=Path("data/raw"),
+        "--raw-root",
+        type=Path,
+        default=Path("data/raw"),
         help="Only used with --from-split. Root passed to discover_recordings -- e.g. "
         "data/raw_unscaled/raw_unscaled for the 5 datasets whose original raw CSVs live "
         "there (data/raw/<dataset> no longer has them for most of the 5).",
     )
     parser.add_argument(
-        "--dataset", required=True, choices=list(DATASET_SPECS),
+        "--dataset",
+        required=True,
+        choices=list(DATASET_SPECS),
         help="Which raw column-naming convention this file follows (selects the "
         "loader's column-mapping table) -- a new recording still needs to be in "
         "one of the project's known raw formats.",
     )
     parser.add_argument(
-        "--only", choices=["all", "nav", "accel"], default="all",
+        "--only",
+        choices=["all", "nav", "accel"],
+        default="all",
         help="Cross-sensor ablation on the ALREADY-TRAINED model: zero out the other "
         "modality's channels before prediction. 'all' (default) is the normal, unablated "
         "run.",
     )
     parser.add_argument(
-        "--normalization", choices=["global", "per_file"], default="global",
+        "--normalization",
+        choices=["global", "per_file"],
+        default="global",
         help="'global' (default): apply the already-fitted --global-stats (never refit, "
         "decision 003) -- required for a checkpoint trained on globally-normalized data. "
         "'per_file': fit fresh percentile-based min-max bounds from THIS recording's own "
@@ -300,25 +318,32 @@ def main() -> None:
     parser.add_argument("--global-stats", type=Path, default=DEFAULT_GLOBAL_STATS)
     parser.add_argument("--feature-medians", type=Path, default=DEFAULT_FEATURE_MEDIANS)
     parser.add_argument(
-        "--window-seconds", type=float, default=None,
+        "--window-seconds",
+        type=float,
+        default=None,
         help="Classical ML only. Default: configs/preprocessing.yaml (segment.py's own default).",
     )
     add_postprocess_args(parser)
     add_match_args(parser, default_match_mode="tolerance")
     parser.add_argument(
-        "--out-csv", type=Path, default=None,
+        "--out-csv",
+        type=Path,
+        default=None,
         help="Write the per-bite ledger here (only produced if the recording has "
         "ground truth). Default: <out-dir>/bout_ledger.csv.",
     )
     parser.add_argument(
-        "--summary-csv", type=Path, default=None,
+        "--summary-csv",
+        type=Path,
+        default=None,
         help="Optional: append this run's aggregate dual-mode metrics as one row "
         "(schema shared with classical_ml/evaluate_bouts.py and "
         "ssl/masked/evaluate_bouts.py) -- only produced if at least one recording "
         "has ground truth.",
     )
     parser.add_argument(
-        "--run-name", default=None,
+        "--run-name",
+        default=None,
         help="Identity for --summary-csv's row. Defaults to --out-dir's name.",
     )
     args = parser.parse_args()
@@ -330,11 +355,15 @@ def main() -> None:
         splits = json.loads(args.from_split.read_text())
         if args.dataset not in splits:
             parser.error(f"--dataset {args.dataset!r} not found in {args.from_split}")
-        wanted_tags = {tag for tag, purpose in splits[args.dataset].items() if purpose == args.purpose}
+        wanted_tags = {
+            tag for tag, purpose in splits[args.dataset].items() if purpose == args.purpose
+        }
         discovered = discover_recordings(args.dataset, args.raw_root)
         args.input = [path for path, tag in discovered if tag in wanted_tags]
-        print(f"  --from-split: {len(args.input)} {args.dataset} recording(s) for purpose={args.purpose!r} "
-              f"(raw-root={args.raw_root})")
+        print(
+            f"  --from-split: {len(args.input)} {args.dataset} recording(s) for purpose={args.purpose!r} "
+            f"(raw-root={args.raw_root})"
+        )
 
     # smooth_window_s's validated default differs by pipeline (0.0 classical
     # ML, already smoothed by upscaling's averaging; 2.0s masked SSL, which
@@ -360,12 +389,18 @@ def main() -> None:
     cfg = postprocess_config_from_args(args)
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n{'=' * 70}\n  Inference on new recording(s) -- {args.model}  (--only {args.only})\n{'=' * 70}")
-    print(f"  Postprocessing: hysteresis({cfg.high}/{cfg.low})  gap={cfg.max_gap_s}s  "
-          f"dur=[{cfg.min_dur_s},{cfg.max_dur_s}]s  valley={cfg.valley_thresh}  "
-          f"envelope-split={cfg.envelope_split}  smooth={cfg.smooth_window_s}s")
+    print(
+        f"\n{'=' * 70}\n  Inference on new recording(s) -- {args.model}  (--only {args.only})\n{'=' * 70}"
+    )
+    print(
+        f"  Postprocessing: hysteresis({cfg.high}/{cfg.low})  gap={cfg.max_gap_s}s  "
+        f"dur=[{cfg.min_dur_s},{cfg.max_dur_s}]s  valley={cfg.valley_thresh}  "
+        f"envelope-split={cfg.envelope_split}  smooth={cfg.smooth_window_s}s"
+    )
 
-    global_stats = json.loads(args.global_stats.read_text()) if args.normalization == "global" else None
+    global_stats = (
+        json.loads(args.global_stats.read_text()) if args.normalization == "global" else None
+    )
 
     ssl_model, ssl_meta, window_len = None, None, None
     feature_medians = None
@@ -375,18 +410,24 @@ def main() -> None:
         ssl_model.eval()
         window_len = ssl_meta["window_len"]
         model_channels = ssl_meta["channels"]
-        print(f"  Loaded checkpoint: {args.ssl_checkpoint}  "
-              f"(architecture={ssl_meta['architecture']}, pretext_task={ssl_meta['pretext_task']}, "
-              f"window={window_len} samples, val_f1={ssl_meta['val_f1']:.3f}, "
-              f"channels={len(model_channels)})")
+        print(
+            f"  Loaded checkpoint: {args.ssl_checkpoint}  "
+            f"(architecture={ssl_meta['architecture']}, pretext_task={ssl_meta['pretext_task']}, "
+            f"window={window_len} samples, val_f1={ssl_meta['val_f1']:.3f}, "
+            f"channels={len(model_channels)})"
+        )
     else:
         window_len = int(args.window_seconds * TARGET_HZ) if args.window_seconds else WINDOW_LEN
         feature_medians = pd.Series(json.loads(args.feature_medians.read_text()))
         model_meta_path = args.classical_ml_model_path.parent / "model_meta.json"
         if model_meta_path.exists():
-            model_channels = json.loads(model_meta_path.read_text()).get("channels") or SENSOR_CHANNELS
-        print(f"  Loaded model: {args.classical_ml_model_path}  (window={window_len} samples, "
-              f"channels={len(model_channels)})")
+            model_channels = (
+                json.loads(model_meta_path.read_text()).get("channels") or SENSOR_CHANNELS
+            )
+        print(
+            f"  Loaded model: {args.classical_ml_model_path}  (window={window_len} samples, "
+            f"channels={len(model_channels)})"
+        )
 
     all_results = []
     recordings_with_gt = []
@@ -394,8 +435,12 @@ def main() -> None:
         print(f"\n--- {input_path} (dataset={args.dataset}) ---")
         rec_out_dir = args.out_dir / input_path.stem
         segments = preprocess_new_recording(
-            args.dataset, input_path, global_stats, rec_out_dir,
-            only=args.only, normalization=args.normalization,
+            args.dataset,
+            input_path,
+            global_stats,
+            rec_out_dir,
+            only=args.only,
+            normalization=args.normalization,
         )
 
         for seg_path, meta in segments:
@@ -403,11 +448,20 @@ def main() -> None:
                 rec = predict_masked_ssl(seg_path, ssl_model, window_len, model_channels)
             else:
                 rec = predict_classical_ml(
-                    seg_path, args.classical_ml_model_path, feature_medians,
-                    window_len, list(DRIVERS), 50.0, model_channels,
+                    seg_path,
+                    args.classical_ml_model_path,
+                    feature_medians,
+                    window_len,
+                    list(DRIVERS),
+                    50.0,
+                    model_channels,
                 )
             rec["participant"] = f"{input_path.stem}/{seg_path.stem}"
-            rec["dataset"], rec["tag"], rec["segment"] = args.dataset, input_path.stem, seg_path.stem
+            rec["dataset"], rec["tag"], rec["segment"] = (
+                args.dataset,
+                input_path.stem,
+                seg_path.stem,
+            )
             rec["_has_label"] = meta["has_label"]
 
             binary = None
@@ -416,11 +470,18 @@ def main() -> None:
                     rec, cfg, args.min_bout_dur, args.match_mode, args.iou_thresh, args.tolerance_s
                 )
                 result["_tolerance_s"], result["_iou_thresh"], result["_min_dur"] = (
-                    args.tolerance_s, args.iou_thresh, args.min_bout_dur,
+                    args.tolerance_s,
+                    args.iou_thresh,
+                    args.min_bout_dur,
                 )
                 all_results.append(result)
                 recordings_with_gt.append(
-                    {"dataset": rec["dataset"], "participant": rec["participant"], "tag": rec["tag"], "segment": rec["segment"]}
+                    {
+                        "dataset": rec["dataset"],
+                        "participant": rec["participant"],
+                        "tag": rec["tag"],
+                        "segment": rec["segment"],
+                    }
                 )
                 print(
                     f"  {seg_path.stem}: GT={result['n_gt_bouts']} bouts  Pred={result['n_pred_bouts']} bouts  "
@@ -430,11 +491,16 @@ def main() -> None:
             else:
                 binary = None
                 from chewing_ssl.common.evaluation.postprocess import apply_full_postprocessing
+
                 binary = apply_full_postprocessing(rec["probs"], rec.get("envelope"), cfg)
                 pred_bouts = extract_bouts(binary, fs=FS, min_dur=args.min_bout_dur)
-                print(f"  {seg_path.stem}: {len(pred_bouts)} predicted bout(s), no ground truth to evaluate against:")
+                print(
+                    f"  {seg_path.stem}: {len(pred_bouts)} predicted bout(s), no ground truth to evaluate against:"
+                )
                 for b in pred_bouts:
-                    print(f"    [{b['start_s']:.2f}s, {b['end_s']:.2f}s]  duration={b['duration_s']:.2f}s")
+                    print(
+                        f"    [{b['start_s']:.2f}s, {b['end_s']:.2f}s]  duration={b['duration_s']:.2f}s"
+                    )
                 bouts_path = rec_out_dir / f"{seg_path.stem}_predicted_bouts.csv"
                 pd.DataFrame(pred_bouts).to_csv(bouts_path, index=False)
                 print(f"    -> {bouts_path}")
@@ -454,6 +520,7 @@ def main() -> None:
         out_csv = args.out_csv or (args.out_dir / "bout_ledger.csv")
         ledger_rows = []
         from chewing_ssl.common.evaluation.pipeline import ledger_rows_for_recording
+
         for ident, result in zip(recordings_with_gt, all_results):
             ledger_rows += ledger_rows_for_recording(ident, result, args.match_mode)
         pd.DataFrame(ledger_rows).to_csv(out_csv, index=False)
@@ -461,8 +528,12 @@ def main() -> None:
 
         if args.summary_csv:
             row = build_summary_row(
-                {"run_name": args.run_name or args.out_dir.name, "model_type": args.model,
-                 "normalization": args.normalization, "only": args.only},
+                {
+                    "run_name": args.run_name or args.out_dir.name,
+                    "model_type": args.model,
+                    "normalization": args.normalization,
+                    "only": args.only,
+                },
                 dual,
             )
             append_summary_row(args.summary_csv, row)

@@ -144,7 +144,9 @@ def sweep_postprocessing(
     df = pd.DataFrame(rows)
     skipped = len(combos) - len(rows)
     if verbose:
-        print(f"    ({len(rows)}/{len(combos)} combos valid, {skipped} skipped: low>=high or max_dur<min_dur)")
+        print(
+            f"    ({len(rows)}/{len(combos)} combos valid, {skipped} skipped: low>=high or max_dur<min_dur)"
+        )
     return df
 
 
@@ -247,4 +249,6 @@ def summarize_best(df: pd.DataFrame, top_n: int = 5) -> None:
     same_winner = best_iou.equals(best_tol)
     print(f"\nBest by IoU-mode F1:       {best_iou.to_dict()}")
     print(f"Best by tolerance-mode F1: {best_tol.to_dict()}")
-    print(f"\n{'Same combo wins both criteria.' if same_winner else 'The two criteria pick DIFFERENT combos -- see which tradeoff you care about more.'}")
+    print(
+        f"\n{'Same combo wins both criteria.' if same_winner else 'The two criteria pick DIFFERENT combos -- see which tradeoff you care about more.'}"
+    )

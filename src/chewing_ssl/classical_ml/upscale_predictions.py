@@ -102,9 +102,9 @@ def compute_upscaled_recordings(
     # can have multiple segment files (gap-segmentation splits dropouts into
     # separate segments under the same tag), each with independent `start`
     # numbering -- merging them would silently mix unrelated windows.
-    for (dataset, participant, tag, segment), group in df[meta_cols].assign(
-        _prob=probs_all
-    ).groupby(["dataset", "participant", "tag", "segment"]):
+    for (dataset, participant, tag, segment), group in (
+        df[meta_cols].assign(_prob=probs_all).groupby(["dataset", "participant", "tag", "segment"])
+    ):
         seg_path = interim_root / dataset / tag / f"{segment}.parquet"
         if not seg_path.exists():
             print(f"  [skip] no interim segment for {dataset}/{tag}/{segment}")

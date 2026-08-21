@@ -43,22 +43,26 @@ def extract_bouts(binary: np.ndarray, fs: float = 50.0, min_dur: float = 0.5) ->
             dur = (i - start) / fs
             if dur >= min_dur:
                 bouts.append(
-                    dict(
-                        start_s=start / fs, end_s=i / fs, duration_s=dur, start_idx=start, end_idx=i
-                    )
+                    {
+                        "start_s": start / fs,
+                        "end_s": i / fs,
+                        "duration_s": dur,
+                        "start_idx": start,
+                        "end_idx": i,
+                    }
                 )
             in_bout = False
     if in_bout:
         dur = (len(binary) - start) / fs
         if dur >= min_dur:
             bouts.append(
-                dict(
-                    start_s=start / fs,
-                    end_s=len(binary) / fs,
-                    duration_s=dur,
-                    start_idx=start,
-                    end_idx=len(binary),
-                )
+                {
+                    "start_s": start / fs,
+                    "end_s": len(binary) / fs,
+                    "duration_s": dur,
+                    "start_idx": start,
+                    "end_idx": len(binary),
+                }
             )
     return bouts
 

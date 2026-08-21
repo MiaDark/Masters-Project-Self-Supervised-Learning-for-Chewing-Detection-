@@ -75,8 +75,10 @@ def align_by_id(
     common = sorted(set(by_id_a) & set(by_id_b))
     dropped = (set(by_id_a) | set(by_id_b)) - set(common)
     if dropped:
-        print(f"  [align_by_id] {len(dropped)} recording(s) not common to both sides, dropped: "
-              f"{sorted(dropped)[:5]}{'...' if len(dropped) > 5 else ''}")
+        print(
+            f"  [align_by_id] {len(dropped)} recording(s) not common to both sides, dropped: "
+            f"{sorted(dropped)[:5]}{'...' if len(dropped) > 5 else ''}"
+        )
     return [by_id_a[i] for i in common], [by_id_b[i] for i in common]
 
 

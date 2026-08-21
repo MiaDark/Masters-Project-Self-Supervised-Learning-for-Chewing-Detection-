@@ -346,7 +346,15 @@ def main() -> None:
 
     window_len = int(args.window_seconds * TARGET_HZ) if args.window_seconds else WINDOW_LEN
     train_overlap = args.train_overlap if args.train_overlap is not None else TRAIN_OVERLAP
-    run(args.interim_root, args.out, DATASETS, args.seed, args.splits_only, window_len, train_overlap)
+    run(
+        args.interim_root,
+        args.out,
+        DATASETS,
+        args.seed,
+        args.splits_only,
+        window_len,
+        train_overlap,
+    )
 
 
 class WindowDataset:

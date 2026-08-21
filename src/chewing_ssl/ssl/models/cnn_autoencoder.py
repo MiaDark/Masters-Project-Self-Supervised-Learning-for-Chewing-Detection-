@@ -11,8 +11,8 @@ dense per-timestep fine-tuning later.
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 def _num_groups(channels: int, max_groups: int = 8) -> int:
@@ -82,7 +82,9 @@ class CNNAutoencoder(nn.Module):
         up_in = widths[-1] * 2
         for w in reversed(widths):
             self.upsamplers.append(nn.ConvTranspose1d(up_in, w, kernel_size=2, stride=2))
-            self.up_blocks.append(ConvBlock(w * 2, w, kernel_size, dropout))  # *2 for concatenated skip
+            self.up_blocks.append(
+                ConvBlock(w * 2, w, kernel_size, dropout)
+            )  # *2 for concatenated skip
             up_in = w
 
         self.head = nn.Conv1d(widths[0], n_channels, kernel_size=1)

@@ -185,8 +185,8 @@ def test_compute_envelope_is_high_during_activity_low_during_silence():
 def test_split_bouts_by_envelope_splits_at_prominent_valley():
     fs = 50.0
     rng = np.random.default_rng(1)
-    burst = lambda n: rng.normal(0, 3.0, size=n)  # noqa: E731
-    pause = lambda n: rng.normal(0, 0.05, size=n)  # noqa: E731
+    burst = lambda n: rng.normal(0, 3.0, size=n)
+    pause = lambda n: rng.normal(0, 0.05, size=n)
     signal = np.concatenate([burst(150), pause(150), burst(150)])  # 3s / 3s / 3s
     envelope = compute_envelope(signal, fs=fs, window_s=0.3)
     binary = np.ones(len(signal), dtype=bool)
@@ -206,8 +206,8 @@ def test_split_bouts_by_envelope_respects_min_piece_duration():
     # suppress that valley.
     fs = 50.0
     rng = np.random.default_rng(2)
-    blip = lambda n: rng.normal(0, 3.0, size=n)  # noqa: E731
-    dip = lambda n: rng.normal(0, 0.05, size=n)  # noqa: E731
+    blip = lambda n: rng.normal(0, 3.0, size=n)
+    dip = lambda n: rng.normal(0, 0.05, size=n)
     signal = np.concatenate([blip(15), dip(10), blip(15)])  # 0.3s/0.2s/0.3s
     envelope = compute_envelope(signal, fs=fs, window_s=0.1)
     binary = np.ones(len(signal), dtype=bool)

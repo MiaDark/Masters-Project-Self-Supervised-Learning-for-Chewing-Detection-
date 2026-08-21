@@ -28,12 +28,16 @@ def tree_ensemble_predict(pipeline: Pipeline, X: pd.DataFrame) -> dict:
     scaler = pipeline.named_steps["scaler"]
     forest = pipeline.named_steps["model"]
     Xs = scaler.transform(X)
-    passes = np.stack([tree.predict_proba(Xs)[:, 1] for tree in forest.estimators_])  # (n_trees, n_windows)
+    passes = np.stack(
+        [tree.predict_proba(Xs)[:, 1] for tree in forest.estimators_]
+    )  # (n_trees, n_windows)
     mean, std, h_tot, h_exp, mi = decompose_uncertainty(passes)
     return {"mean": mean, "std": std, "entropy": h_tot, "exp_entropy": h_exp, "mutual_info": mi}
 
 
-def upscale_columns(cols: dict[str, np.ndarray], starts: np.ndarray, window_len: int) -> dict[str, np.ndarray]:
+def upscale_columns(
+    cols: dict[str, np.ndarray], starts: np.ndarray, window_len: int
+) -> dict[str, np.ndarray]:
     """Broadcast several per-window arrays (all aligned to the same
     `starts`, e.g. tree_ensemble_predict's mean/std/entropy/mutual_info) to
     per-timestep resolution together, in one pass -- same averaging-over-

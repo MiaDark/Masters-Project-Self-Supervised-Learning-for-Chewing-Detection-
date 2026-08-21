@@ -237,7 +237,7 @@ def main() -> None:
                 try:
                     plot_one(dataset, tag, path, channel, args.global_stats, out_path)
                     total += 1
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 -- one bad recording shouldn't abort the batch
                     print(f"  FAILED: {exc}")
                     failed += 1
 

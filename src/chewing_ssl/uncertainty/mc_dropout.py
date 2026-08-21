@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-import torch.nn as nn
+from torch import nn
 
 from chewing_ssl.common.data.windowing import WINDOW_LEN
 from chewing_ssl.uncertainty.decompose import decompose_uncertainty
@@ -43,7 +43,7 @@ def infer_recording_mc(
       exp_entropy - mean of each pass's own entropy (ALEATORIC only)
       mutual_info - entropy - exp_entropy (EPISTEMIC / BALD)
     """
-    C, N = x_full.shape
+    _C, N = x_full.shape
     device = device or next(model.parameters()).device
     mean = np.full(N, np.nan, dtype=np.float32)
     std = np.full(N, np.nan, dtype=np.float32)

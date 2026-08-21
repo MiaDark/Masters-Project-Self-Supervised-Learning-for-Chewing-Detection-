@@ -27,10 +27,14 @@ from chewing_ssl.uncertainty.mc_dropout import enable_mc_dropout, infer_recordin
 def main() -> None:
     parser = argparse.ArgumentParser(description="MC-Dropout uncertainty evaluation.")
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--interim-root", type=Path, default=Path("data/interim_normalized_80_10_10"))
+    parser.add_argument(
+        "--interim-root", type=Path, default=Path("data/interim_normalized_80_10_10")
+    )
     parser.add_argument("--processed-root", type=Path, default=Path("data/processed_80_10_10"))
     parser.add_argument("--dataset", default=None, help="Restrict to one dataset. Default: all.")
-    parser.add_argument("--mc-passes", type=int, default=30, help="Stochastic forward passes per window (T).")
+    parser.add_argument(
+        "--mc-passes", type=int, default=30, help="Stochastic forward passes per window (T)."
+    )
     parser.add_argument("--n-bins", type=int, default=15, help="Reliability-diagram bin count.")
     parser.add_argument("--device", default=None)
     add_postprocess_args(parser)
@@ -42,7 +46,9 @@ def main() -> None:
             action.default = 2.0
     add_match_args(parser, default_match_mode="iou")
     parser.add_argument("--out-dir", type=Path, default=Path("checkpoints/uncertainty"))
-    parser.add_argument("--summary-csv", type=Path, default=Path("checkpoints/uncertainty_summary.csv"))
+    parser.add_argument(
+        "--summary-csv", type=Path, default=Path("checkpoints/uncertainty_summary.csv")
+    )
     parser.add_argument(
         "--run-name",
         default=None,
@@ -52,8 +58,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    device = torch.device(args.device) if args.device else torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
+    device = (
+        torch.device(args.device)
+        if args.device
+        else torch.device("cuda" if torch.cuda.is_available() else "cpu")
     )
     cfg = postprocess_config_from_args(args)
 
@@ -114,7 +122,11 @@ def main() -> None:
             bout_result = evaluate_recording(
                 rec, cfg, args.min_bout_dur, args.match_mode, args.iou_thresh, args.tolerance_s
             )
-            bout_result["dataset"], bout_result["tag"], bout_result["segment"] = ds, tag, seg_path.stem
+            bout_result["dataset"], bout_result["tag"], bout_result["segment"] = (
+                ds,
+                tag,
+                seg_path.stem,
+            )
             results.append(bout_result)
 
             covered = ~np.isnan(mc["mean"])
@@ -173,8 +185,12 @@ def main() -> None:
     auroc_mi = float(roc_auc_score(~correct, mi)) if has_both else float("nan")
     auroc_ent = float(roc_auc_score(~correct, entropy)) if has_both else float("nan")
     print(f"\n{'-' * 60}\n  Uncertainty vs. correctness")
-    print(f"  Mean epistemic (mutual_info) | correct={mi[correct].mean():.4f}  wrong={mi[~correct].mean():.4f}")
-    print(f"  Mean total (entropy)         | correct={entropy[correct].mean():.4f}  wrong={entropy[~correct].mean():.4f}")
+    print(
+        f"  Mean epistemic (mutual_info) | correct={mi[correct].mean():.4f}  wrong={mi[~correct].mean():.4f}"
+    )
+    print(
+        f"  Mean total (entropy)         | correct={entropy[correct].mean():.4f}  wrong={entropy[~correct].mean():.4f}"
+    )
     print(f"  AUROC(mutual_info -> misclassified) : {auroc_mi:.3f}")
     print(f"  AUROC(entropy -> misclassified)     : {auroc_ent:.3f}")
 

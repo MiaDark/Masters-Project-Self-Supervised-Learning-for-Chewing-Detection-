@@ -43,7 +43,10 @@ GOOD_COLOR = "#0ca30c"  # status: correct
 CRITICAL_COLOR = "#d03b3b"  # status: wrong
 
 PIPELINE_COLOR = {"masked_ssl": SSL_COLOR, "classical_ml": RF_COLOR}
-PIPELINE_LABEL = {"masked_ssl": "masked_ssl (MC-Dropout)", "classical_ml": "classical_ml (tree ensemble)"}
+PIPELINE_LABEL = {
+    "masked_ssl": "masked_ssl (MC-Dropout)",
+    "classical_ml": "classical_ml (tree ensemble)",
+}
 
 plt.rcParams.update(
     {
@@ -106,7 +109,15 @@ def plot_reliability_diagram(
     "classical_ml": "rf_global_all"}. One line per pipeline against the
     perfect-calibration diagonal."""
     fig, ax = plt.subplots(figsize=(5.2, 5.2))
-    ax.plot([0, 1], [0, 1], color=BASELINE, linewidth=1.5, linestyle="--", label="Perfect calibration", zorder=1)
+    ax.plot(
+        [0, 1],
+        [0, 1],
+        color=BASELINE,
+        linewidth=1.5,
+        linestyle="--",
+        label="Perfect calibration",
+        zorder=1,
+    )
 
     for pipeline, run_name in run_names.items():
         pooled = _pool_run(uncertainty_dir, run_name)
@@ -143,7 +154,14 @@ def plot_config_grid(summary_csv: Path, out_path: Path) -> None:
     each), never one dual-axis chart."""
     df = pd.read_csv(summary_csv)
     df = df[df["run_name"] != "span_bigru_w200_mc30"]  # exclude the pre-grid demo row
-    config_order = ["global_all", "global_nav", "global_accel", "per_file_all", "per_file_nav", "per_file_accel"]
+    config_order = [
+        "global_all",
+        "global_nav",
+        "global_accel",
+        "per_file_all",
+        "per_file_nav",
+        "per_file_accel",
+    ]
     df["config"] = df["norm"] + "_" + df["channels"]
     df["config"] = pd.Categorical(df["config"], categories=config_order, ordered=True)
     df = df.sort_values("config")
@@ -162,8 +180,11 @@ def plot_config_grid(summary_csv: Path, out_path: Path) -> None:
             sub = df[df["pipeline"] == pipeline].set_index("config").reindex(config_order)
             offset = (i - 0.5) * width
             ax.bar(
-                x + offset, sub[col].to_numpy(), width=width * 0.94,
-                color=PIPELINE_COLOR[pipeline], label=PIPELINE_LABEL[pipeline],
+                x + offset,
+                sub[col].to_numpy(),
+                width=width * 0.94,
+                color=PIPELINE_COLOR[pipeline],
+                label=PIPELINE_LABEL[pipeline],
             )
         ax.set_xticks(x)
         ax.set_xticklabels([c.replace("_", "\n") for c in config_order], fontsize=8)
@@ -175,14 +196,21 @@ def plot_config_grid(summary_csv: Path, out_path: Path) -> None:
         ax.set_axisbelow(True)
 
     axes[0].legend(fontsize=8, loc="lower left", frameon=False)
-    fig.suptitle("All 12 configs: accuracy, calibration, and error-detection side by side", fontsize=11, x=0.01, ha="left")
+    fig.suptitle(
+        "All 12 configs: accuracy, calibration, and error-detection side by side",
+        fontsize=11,
+        x=0.01,
+        ha="left",
+    )
     _save(fig, out_path)
 
 
 # -- Figure 3: uncertainty distribution, correct vs. wrong --------------------------
 
 
-def plot_uncertainty_distributions(uncertainty_dir: Path, run_names: dict[str, str], out_path: Path) -> None:
+def plot_uncertainty_distributions(
+    uncertainty_dir: Path, run_names: dict[str, str], out_path: Path
+) -> None:
     """One panel per pipeline (different absolute MI scale -- see
     docs/uncertainty.md finding 1 -- so shared x-axis would flatten one of
     them); density histogram of epistemic uncertainty (mutual_info) split
@@ -195,8 +223,22 @@ def plot_uncertainty_distributions(uncertainty_dir: Path, run_names: dict[str, s
         mi = pooled["mutual_info"]
 
         bins = np.linspace(0, np.quantile(mi, 0.995), 60)
-        ax.hist(mi[correct], bins=bins, density=True, color=GOOD_COLOR, alpha=0.55, label=f"correct (n={correct.sum():,})")
-        ax.hist(mi[~correct], bins=bins, density=True, color=CRITICAL_COLOR, alpha=0.55, label=f"wrong (n={(~correct).sum():,})")
+        ax.hist(
+            mi[correct],
+            bins=bins,
+            density=True,
+            color=GOOD_COLOR,
+            alpha=0.55,
+            label=f"correct (n={correct.sum():,})",
+        )
+        ax.hist(
+            mi[~correct],
+            bins=bins,
+            density=True,
+            color=CRITICAL_COLOR,
+            alpha=0.55,
+            label=f"wrong (n={(~correct).sum():,})",
+        )
         ax.axvline(mi[correct].mean(), color=GOOD_COLOR, linewidth=1.5, linestyle="--")
         ax.axvline(mi[~correct].mean(), color=CRITICAL_COLOR, linewidth=1.5, linestyle="--")
         ax.set_title(PIPELINE_LABEL[pipeline], fontsize=10, loc="left")
@@ -204,7 +246,12 @@ def plot_uncertainty_distributions(uncertainty_dir: Path, run_names: dict[str, s
         ax.set_ylabel("Density")
         ax.legend(fontsize=8, frameon=False)
 
-    fig.suptitle("Epistemic uncertainty is higher where the model is wrong (dashed = group mean)", fontsize=11, x=0.01, ha="left")
+    fig.suptitle(
+        "Epistemic uncertainty is higher where the model is wrong (dashed = group mean)",
+        fontsize=11,
+        x=0.01,
+        ha="left",
+    )
     _save(fig, out_path)
 
 
@@ -227,10 +274,20 @@ def plot_recording_trace(npz_path: Path, out_path: Path, title: str) -> None:
     gt = d["label"].astype(bool)
     edges = np.flatnonzero(np.diff(np.concatenate([[0], gt.astype(int), [0]])))
     for start, end in zip(edges[0::2], edges[1::2]):
-        ax1.axvspan(t[start], t[min(end, len(t) - 1)], color=TRACE_PALETTE["bout"], alpha=0.28, linewidth=0)
+        ax1.axvspan(
+            t[start], t[min(end, len(t) - 1)], color=TRACE_PALETTE["bout"], alpha=0.28, linewidth=0
+        )
 
     ax1.plot(t, d["mean"], color=SSL_COLOR, linewidth=1.0, label="mean predicted probability")
-    ax1.fill_between(t, d["mean"] - d["std"], d["mean"] + d["std"], color=SSL_COLOR, alpha=0.2, linewidth=0, label="+/- 1 std (MC-Dropout)")
+    ax1.fill_between(
+        t,
+        d["mean"] - d["std"],
+        d["mean"] + d["std"],
+        color=SSL_COLOR,
+        alpha=0.2,
+        linewidth=0,
+        label="+/- 1 std (MC-Dropout)",
+    )
     ax1.axhline(0.5, color=BASELINE, linewidth=1, linestyle=":")
     ax1.set_ylabel("P(chewing)")
     ax1.set_ylim(-0.02, 1.02)
@@ -238,10 +295,20 @@ def plot_recording_trace(npz_path: Path, out_path: Path, title: str) -> None:
     legend_handles = [
         mpatches.Patch(color=TRACE_PALETTE["bout"], alpha=0.28, label="ground-truth chewing bout"),
     ]
-    ax1.legend(handles=ax1.get_legend_handles_labels()[0] + legend_handles, fontsize=8, loc="upper right")
+    ax1.legend(
+        handles=ax1.get_legend_handles_labels()[0] + legend_handles, fontsize=8, loc="upper right"
+    )
 
-    ax2.plot(t, d["entropy"], color=INK_SECONDARY, linewidth=1.0, label="total uncertainty (entropy)")
-    ax2.plot(t, d["mutual_info"], color=CRITICAL_COLOR, linewidth=1.2, label="epistemic uncertainty (mutual info)")
+    ax2.plot(
+        t, d["entropy"], color=INK_SECONDARY, linewidth=1.0, label="total uncertainty (entropy)"
+    )
+    ax2.plot(
+        t,
+        d["mutual_info"],
+        color=CRITICAL_COLOR,
+        linewidth=1.2,
+        label="epistemic uncertainty (mutual info)",
+    )
     ax2.set_ylabel("Uncertainty")
     ax2.set_xlabel("Time (s)")
     ax2.legend(fontsize=8, loc="upper right")
@@ -252,7 +319,9 @@ def plot_recording_trace(npz_path: Path, out_path: Path, title: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--uncertainty-dir", type=Path, default=Path("checkpoints/uncertainty"))
-    parser.add_argument("--summary-csv", type=Path, default=Path("checkpoints/uncertainty_summary.csv"))
+    parser.add_argument(
+        "--summary-csv", type=Path, default=Path("checkpoints/uncertainty_summary.csv")
+    )
     parser.add_argument("--out-dir", type=Path, default=Path("checkpoints/plots/uncertainty"))
     args = parser.parse_args()
 
@@ -265,7 +334,9 @@ def main() -> None:
     plot_config_grid(args.summary_csv, args.out_dir / "02_config_grid")
 
     print("Figure 3: uncertainty distribution, correct vs. wrong")
-    plot_uncertainty_distributions(args.uncertainty_dir, best, args.out_dir / "03_uncertainty_distributions")
+    plot_uncertainty_distributions(
+        args.uncertainty_dir, best, args.out_dir / "03_uncertainty_distributions"
+    )
 
     print("Figure 4: EMTEQRAP15 trace (masked_ssl, global/all)")
     plot_recording_trace(

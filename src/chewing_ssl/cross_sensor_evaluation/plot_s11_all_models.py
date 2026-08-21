@@ -10,7 +10,11 @@ from chewing_ssl.classical_ml.extract_features import DRIVERS
 from chewing_ssl.common.data.preprocess import channels_for_modality, resample_recording
 from chewing_ssl.common.data.windowing import WINDOW_LEN
 from chewing_ssl.common.evaluation.bouts import extract_bouts, match_bouts_tolerant
-from chewing_ssl.common.evaluation.pipeline import add_match_args, add_postprocess_args, postprocess_config_from_args
+from chewing_ssl.common.evaluation.pipeline import (
+    add_match_args,
+    add_postprocess_args,
+    postprocess_config_from_args,
+)
 from chewing_ssl.common.evaluation.plotting import gt_panel, plot_bout_panels, pred_panel
 from chewing_ssl.common.evaluation.postprocess import apply_full_postprocessing
 from chewing_ssl.cross_sensor_evaluation.model_grid import CLASSICAL_ML, MASKED_SSL
@@ -40,9 +44,14 @@ def plot_one(model_key, participant, signal, rec, ml_cfg, gt_bouts, base_args, o
     out_dir = out_root / model_key / "plots"
     out_dir.mkdir(parents=True, exist_ok=True)
     plot_bout_panels(
-        signal["datetime"], signal["nav_x_left_temple"], signal["nav_y_left_temple"],
+        signal["datetime"],
+        signal["nav_x_left_temple"],
+        signal["nav_y_left_temple"],
         [gt_panel(gt_bouts), pred_panel(pred_bouts, title="Model prediction (postprocessed)")],
-        suptitle, out_dir / f"{participant}.png", ylim=(-50.0, 50.0), ylabel=ylabel,
+        suptitle,
+        out_dir / f"{participant}.png",
+        ylim=(-50.0, 50.0),
+        ylabel=ylabel,
     )
 
 
@@ -80,32 +89,63 @@ def main() -> None:
         signal = raw_df[["datetime", "nav_x_left_temple", "nav_y_left_temple"]]
 
         for model_key, (model_path, _test_features, _medians, _norm) in CLASSICAL_ML.items():
-            seg_path = EVAL_ROOT / model_key / participant / "interim_normalized" / "segment_00.parquet"
+            seg_path = (
+                EVAL_ROOT / model_key / participant / "interim_normalized" / "segment_00.parquet"
+            )
             if not seg_path.exists():
                 print(f"  [skip] {model_key}/{participant}: {seg_path} not found (run eval first)")
                 continue
             channels = channels_for_modality(_modality(model_key))
             rec = predict_classical_ml(
-                seg_path, model_path, ml_medians_cache[model_key], WINDOW_LEN, list(DRIVERS), 50.0,
+                seg_path,
+                model_path,
+                ml_medians_cache[model_key],
+                WINDOW_LEN,
+                list(DRIVERS),
+                50.0,
                 channels=channels,
             )
             gt_bouts = extract_bouts(rec["gt"], fs=50.0, min_dur=base_args.min_bout_dur)
-            plot_one(model_key, participant, signal, rec, ml_cfg, gt_bouts, base_args, EVAL_ROOT, "nav (raw, clipped)")
+            plot_one(
+                model_key,
+                participant,
+                signal,
+                rec,
+                ml_cfg,
+                gt_bouts,
+                base_args,
+                EVAL_ROOT,
+                "nav (raw, clipped)",
+            )
             n_plotted += 1
 
         for model_key, (model, window_len, channels) in ssl_models.items():
-            seg_path = EVAL_ROOT / model_key / participant / "interim_normalized" / "segment_00.parquet"
+            seg_path = (
+                EVAL_ROOT / model_key / participant / "interim_normalized" / "segment_00.parquet"
+            )
             if not seg_path.exists():
                 print(f"  [skip] {model_key}/{participant}: {seg_path} not found (run eval first)")
                 continue
             rec = predict_masked_ssl(seg_path, model, window_len, channels)
             gt_bouts = extract_bouts(rec["gt"], fs=50.0, min_dur=base_args.min_bout_dur)
-            plot_one(model_key, participant, signal, rec, ssl_cfg, gt_bouts, base_args, EVAL_ROOT, "nav (raw, clipped)")
+            plot_one(
+                model_key,
+                participant,
+                signal,
+                rec,
+                ssl_cfg,
+                gt_bouts,
+                base_args,
+                EVAL_ROOT,
+                "nav (raw, clipped)",
+            )
             n_plotted += 1
 
         print(f"  {participant}: plotted for 12 models")
 
-    print(f"\nDone. {n_plotted} plot(s) written across {len(FILES)} recording(s) x 12 models -> {EVAL_ROOT}/<model_key>/plots/")
+    print(
+        f"\nDone. {n_plotted} plot(s) written across {len(FILES)} recording(s) x 12 models -> {EVAL_ROOT}/<model_key>/plots/"
+    )
 
 
 if __name__ == "__main__":

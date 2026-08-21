@@ -8,13 +8,13 @@ FS = 50.0
 
 
 def _bout(start_row: int, end_row: int, fs: float = FS) -> dict:
-    return dict(
-        start_s=start_row / fs,
-        end_s=end_row / fs,
-        duration_s=(end_row - start_row) / fs,
-        start_idx=start_row,
-        end_idx=end_row,
-    )
+    return {
+        "start_s": start_row / fs,
+        "end_s": end_row / fs,
+        "duration_s": (end_row - start_row) / fs,
+        "start_idx": start_row,
+        "end_idx": end_row,
+    }
 
 
 def test_extract_bouts_finds_two_separate_bouts():

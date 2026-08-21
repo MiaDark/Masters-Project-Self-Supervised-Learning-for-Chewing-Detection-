@@ -16,26 +16,39 @@ def _run(args: list[str]) -> None:
 def main() -> None:
     for key, (model_path, features_path, _medians, _norm) in CLASSICAL_ML.items():
         print(f"PLOT  {key}")
-        _run([
-            "chewing_ssl.classical_ml.plot_predictions",
-            "--model-path", str(model_path),
-            "--features-path", str(features_path),
-            "--interim-root", str(RAW_INTERIM),
-            "--all",
-            "--out-dir", str(OUT_ROOT / key / "plots"),
-        ])
+        _run(
+            [
+                "chewing_ssl.classical_ml.plot_predictions",
+                "--model-path",
+                str(model_path),
+                "--features-path",
+                str(features_path),
+                "--interim-root",
+                str(RAW_INTERIM),
+                "--all",
+                "--out-dir",
+                str(OUT_ROOT / key / "plots"),
+            ]
+        )
 
     for key, (checkpoint, interim_root, processed_root, _norm) in MASKED_SSL.items():
         print(f"PLOT  {key}")
-        _run([
-            "chewing_ssl.ssl.masked.plot_predictions",
-            "--checkpoint", str(checkpoint),
-            "--interim-root", str(interim_root),
-            "--raw-interim-root", str(RAW_INTERIM),
-            "--processed-root", str(processed_root),
-            "--all",
-            "--out-dir", str(OUT_ROOT / key / "plots"),
-        ])
+        _run(
+            [
+                "chewing_ssl.ssl.masked.plot_predictions",
+                "--checkpoint",
+                str(checkpoint),
+                "--interim-root",
+                str(interim_root),
+                "--raw-interim-root",
+                str(RAW_INTERIM),
+                "--processed-root",
+                str(processed_root),
+                "--all",
+                "--out-dir",
+                str(OUT_ROOT / key / "plots"),
+            ]
+        )
 
     print("\nALL NATIVE-TEST REPLOTS DONE")
 

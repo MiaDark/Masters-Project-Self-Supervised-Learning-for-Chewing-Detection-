@@ -72,7 +72,6 @@ from chewing_ssl.common.evaluation.plotting import gt_panel, plot_bout_panels, p
 from chewing_ssl.common.evaluation.postprocess import ENVELOPE_CHANNELS, FS, compute_envelope
 from chewing_ssl.common.evaluation.reporting import print_alignment_summary
 
-
 # ── Loading ──────────────────────────────────────────────────────────────────
 
 
@@ -192,7 +191,9 @@ def main() -> None:
         help="Predictions are computed fresh against this file every run -- no cached artifact.",
     )
     parser.add_argument(
-        "--classical-ml-features-path", type=Path, default=Path("data/processed/ml_features/test.parquet")
+        "--classical-ml-features-path",
+        type=Path,
+        default=Path("data/processed/ml_features/test.parquet"),
     )
     parser.add_argument(
         "--classical-ml-window-seconds",
@@ -270,11 +271,16 @@ def main() -> None:
     )
 
     ml_window_len = (
-        int(args.classical_ml_window_seconds * TARGET_HZ) if args.classical_ml_window_seconds else WINDOW_LEN
+        int(args.classical_ml_window_seconds * TARGET_HZ)
+        if args.classical_ml_window_seconds
+        else WINDOW_LEN
     )
     print(f"  Computing classical ML predictions fresh from {args.classical_ml_model_path} ...")
     ml_recordings = compute_upscaled_recordings(
-        args.classical_ml_model_path, args.classical_ml_features_path, args.interim_root, ml_window_len,
+        args.classical_ml_model_path,
+        args.classical_ml_features_path,
+        args.interim_root,
+        ml_window_len,
         envelope_window_s=args.envelope_window_s,
     )
     ssl_recordings = load_ssl_recordings(
@@ -286,11 +292,15 @@ def main() -> None:
     )
 
     ml_results = [
-        evaluate_recording(r, ml_cfg, args.min_bout_dur, args.match_mode, args.iou_thresh, args.tolerance_s)
+        evaluate_recording(
+            r, ml_cfg, args.min_bout_dur, args.match_mode, args.iou_thresh, args.tolerance_s
+        )
         for r in ml_recordings
     ]
     ssl_results = [
-        evaluate_recording(r, ssl_cfg, args.min_bout_dur, args.match_mode, args.iou_thresh, args.tolerance_s)
+        evaluate_recording(
+            r, ssl_cfg, args.min_bout_dur, args.match_mode, args.iou_thresh, args.tolerance_s
+        )
         for r in ssl_recordings
     ]
     ml_dual = aggregate_dual_mode(ml_results)
@@ -336,12 +346,21 @@ def main() -> None:
         def _ledger_rows(recordings, results, extra_ident):
             rows = []
             for rec, result in zip(recordings, results):
-                ident = {**extra_ident, **{k: rec[k] for k in ("dataset", "participant", "tag", "segment")}}
+                ident = {
+                    **extra_ident,
+                    **{k: rec[k] for k in ("dataset", "participant", "tag", "segment")},
+                }
                 rows += ledger_rows_for_recording(ident, result, args.match_mode)
             return rows
 
-        ml_rows = _ledger_rows(ml_recordings, ml_results, {"pipeline": "classical_ml", "run_name": args.classical_ml_run_name})
-        ssl_rows = _ledger_rows(ssl_recordings, ssl_results, {"pipeline": "ssl_masked", "run_name": args.ssl_run_name})
+        ml_rows = _ledger_rows(
+            ml_recordings,
+            ml_results,
+            {"pipeline": "classical_ml", "run_name": args.classical_ml_run_name},
+        )
+        ssl_rows = _ledger_rows(
+            ssl_recordings, ssl_results, {"pipeline": "ssl_masked", "run_name": args.ssl_run_name}
+        )
         combined = pd.DataFrame(ml_rows + ssl_rows)
         args.out_ledger.parent.mkdir(parents=True, exist_ok=True)
         combined.to_csv(args.out_ledger, index=False)
@@ -351,16 +370,30 @@ def main() -> None:
         )
 
     if args.plot:
-        ml_by_key = {(r["dataset"], r["tag"], r["segment"]): res for r, res in zip(ml_recordings, ml_results)}
-        ssl_by_key = {(r["dataset"], r["tag"], r["segment"]): res for r, res in zip(ssl_recordings, ssl_results)}
+        ml_by_key = {
+            (r["dataset"], r["tag"], r["segment"]): res for r, res in zip(ml_recordings, ml_results)
+        }
+        ssl_by_key = {
+            (r["dataset"], r["tag"], r["segment"]): res
+            for r, res in zip(ssl_recordings, ssl_results)
+        }
         common_keys = sorted(set(ml_by_key) & set(ssl_by_key))
-        print(f"\n  Plotting {len(common_keys)} recording(s) shared by both pipelines -> {args.plot_out_dir}/")
+        print(
+            f"\n  Plotting {len(common_keys)} recording(s) shared by both pipelines -> {args.plot_out_dir}/"
+        )
         for dataset, tag, segment in common_keys:
             out_path = args.plot_out_dir / f"{dataset}_{tag}_{segment}.png"
             plot_comparison(
-                args.interim_root, dataset, tag, segment,
-                ml_by_key[(dataset, tag, segment)], ssl_by_key[(dataset, tag, segment)],
-                args.match_mode, args.classical_ml_run_name, args.ssl_run_name, out_path,
+                args.interim_root,
+                dataset,
+                tag,
+                segment,
+                ml_by_key[(dataset, tag, segment)],
+                ssl_by_key[(dataset, tag, segment)],
+                args.match_mode,
+                args.classical_ml_run_name,
+                args.ssl_run_name,
+                out_path,
                 ylim=tuple(args.ylim) if args.ylim else None,
             )
         print(f"  Done. {len(common_keys)} plot(s) written -> {args.plot_out_dir}/")

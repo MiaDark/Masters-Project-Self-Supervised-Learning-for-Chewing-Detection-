@@ -9,7 +9,11 @@ import pandas as pd
 from chewing_ssl.classical_ml.extract_features import DRIVERS
 from chewing_ssl.common.data.windowing import WINDOW_LEN
 from chewing_ssl.common.evaluation.bouts import extract_bouts, match_bouts_tolerant
-from chewing_ssl.common.evaluation.pipeline import add_match_args, add_postprocess_args, postprocess_config_from_args
+from chewing_ssl.common.evaluation.pipeline import (
+    add_match_args,
+    add_postprocess_args,
+    postprocess_config_from_args,
+)
 from chewing_ssl.common.evaluation.plotting import gt_panel, plot_bout_panels, pred_panel
 from chewing_ssl.common.evaluation.postprocess import apply_full_postprocessing
 from chewing_ssl.predict_new_recording import (
@@ -17,7 +21,6 @@ from chewing_ssl.predict_new_recording import (
     DEFAULT_FEATURE_MEDIANS,
     DEFAULT_SSL_CHECKPOINT,
     predict_classical_ml,
-    predict_masked_ssl,
 )
 from chewing_ssl.ssl.masked.evaluate_bouts import load_finetuned_model
 from chewing_ssl.ssl.masked.plot_predictions import plot_recording
@@ -56,8 +59,17 @@ def main() -> None:
 
             for seg_path in sorted(ml_dir.glob("*/interim_normalized/segment_*.parquet")):
                 participant = seg_path.parents[1].name
-                rec = predict_classical_ml(seg_path, DEFAULT_CLASSICAL_ML_MODEL, feature_medians, WINDOW_LEN, list(DRIVERS), 50.0)
-                signal = pd.read_parquet(seg_path, columns=["datetime", "nav_x_left_temple", "nav_y_left_temple"])
+                rec = predict_classical_ml(
+                    seg_path,
+                    DEFAULT_CLASSICAL_ML_MODEL,
+                    feature_medians,
+                    WINDOW_LEN,
+                    list(DRIVERS),
+                    50.0,
+                )
+                signal = pd.read_parquet(
+                    seg_path, columns=["datetime", "nav_x_left_temple", "nav_y_left_temple"]
+                )
                 probs = rec["probs"]
                 pred_binary = apply_full_postprocessing(probs, rec.get("envelope"), ml_cfg)
                 gt_bouts = extract_bouts(rec["gt"], fs=50.0, min_dur=ml_args.min_bout_dur)
@@ -73,9 +85,16 @@ def main() -> None:
                 out_dir = OUT_ROOT / f"classical_ml_{scope}_only_{only}"
                 out_dir.mkdir(parents=True, exist_ok=True)
                 plot_bout_panels(
-                    signal["datetime"], signal["nav_x_left_temple"], signal["nav_y_left_temple"],
-                    [gt_panel(gt_bouts), pred_panel(pred_bouts, title="Model prediction (postprocessed)")],
-                    suptitle, out_dir / f"{participant}.png", ylim=(-2.0, 2.0),
+                    signal["datetime"],
+                    signal["nav_x_left_temple"],
+                    signal["nav_y_left_temple"],
+                    [
+                        gt_panel(gt_bouts),
+                        pred_panel(pred_bouts, title="Model prediction (postprocessed)"),
+                    ],
+                    suptitle,
+                    out_dir / f"{participant}.png",
+                    ylim=(-2.0, 2.0),
                 )
                 n_plotted += 1
 
@@ -85,10 +104,17 @@ def main() -> None:
                 out_dir = OUT_ROOT / f"masked_ssl_{scope}_only_{only}"
                 out_dir.mkdir(parents=True, exist_ok=True)
                 plot_recording(
-                    ssl_model, seg_path, label, out_dir / f"{participant}.png",
-                    window_len=window_len, cfg=ssl_cfg, min_bout_dur=ssl_args.min_bout_dur,
-                    match_mode=ssl_args.match_mode, tolerance_s=ssl_args.tolerance_s,
-                    iou_thresh=ssl_args.iou_thresh, ylim=(-2.0, 2.0),
+                    ssl_model,
+                    seg_path,
+                    label,
+                    out_dir / f"{participant}.png",
+                    window_len=window_len,
+                    cfg=ssl_cfg,
+                    min_bout_dur=ssl_args.min_bout_dur,
+                    match_mode=ssl_args.match_mode,
+                    tolerance_s=ssl_args.tolerance_s,
+                    iou_thresh=ssl_args.iou_thresh,
+                    ylim=(-2.0, 2.0),
                 )
                 n_plotted += 1
 

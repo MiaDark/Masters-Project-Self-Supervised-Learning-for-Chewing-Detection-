@@ -174,8 +174,15 @@ def sample_mask_batch(
         )
         time_mask = (
             _sample_span_mask(
-                n_timesteps, span_mask_ratio, min_spans, max_spans, generator,
-                fs=fs, min_span_s=min_span_s, max_span_s=max_span_s, variable_length=variable_length,
+                n_timesteps,
+                span_mask_ratio,
+                min_spans,
+                max_spans,
+                generator,
+                fs=fs,
+                min_span_s=min_span_s,
+                max_span_s=max_span_s,
+                variable_length=variable_length,
             )
             if mode in ("span", "both")
             else torch.zeros(n_timesteps, dtype=torch.bool)

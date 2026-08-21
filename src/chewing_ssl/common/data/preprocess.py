@@ -121,7 +121,7 @@ def resample_segment(df: pd.DataFrame, target_hz: float = DEFAULT_TARGET_HZ) -> 
     fractional labels, which makes no sense for a binary chewing flag.
     """
     start, end = df["datetime"].iloc[0], df["datetime"].iloc[-1]
-    n_samples = max(int(round((end - start).total_seconds() * target_hz)) + 1, 1)
+    n_samples = max(round((end - start).total_seconds() * target_hz) + 1, 1)
     grid = pd.date_range(start, end, periods=n_samples)
 
     t_src = (df["datetime"] - start).dt.total_seconds().to_numpy()
@@ -191,7 +191,12 @@ def fit_minmax_stats(
     for c in channels:
         values = np.concatenate([seg[c].to_numpy() for seg in segments if c in seg.columns])
         lo, hi = np.percentile(values, [lower_pct, upper_pct])
-        stats[c] = {"lo": float(lo), "hi": float(hi), "lower_pct": lower_pct, "upper_pct": upper_pct}
+        stats[c] = {
+            "lo": float(lo),
+            "hi": float(hi),
+            "lower_pct": lower_pct,
+            "upper_pct": upper_pct,
+        }
     return stats
 
 
@@ -282,7 +287,7 @@ def run_batch(datasets: list[str], root: Path, out_root: Path, **kwargs) -> None
             print(f"[{i}/{len(recordings)}] {dataset}/{tag}")
             try:
                 segments = resample_recording(dataset, path, **kwargs)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- one bad recording shouldn't abort the batch
                 print(f"  FAILED: {exc}")
                 continue
 

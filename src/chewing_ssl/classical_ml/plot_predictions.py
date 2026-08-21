@@ -34,9 +34,16 @@ import pandas as pd
 from chewing_ssl.classical_ml.upscale_predictions import compute_upscaled_recordings
 from chewing_ssl.common.data.windowing import TARGET_HZ, WINDOW_LEN
 from chewing_ssl.common.evaluation.bouts import extract_bouts, match_bouts, match_bouts_tolerant
-from chewing_ssl.common.evaluation.pipeline import add_postprocess_args, postprocess_config_from_args
+from chewing_ssl.common.evaluation.pipeline import (
+    add_postprocess_args,
+    postprocess_config_from_args,
+)
 from chewing_ssl.common.evaluation.plotting import gt_panel, plot_bout_panels, pred_panel
-from chewing_ssl.common.evaluation.postprocess import ENVELOPE_CHANNELS, FS, apply_full_postprocessing
+from chewing_ssl.common.evaluation.postprocess import (
+    ENVELOPE_CHANNELS,
+    FS,
+    apply_full_postprocessing,
+)
 
 
 def plot_predictions(
@@ -52,7 +59,12 @@ def plot_predictions(
     iou_thresh: float = 0.3,
     ylim: tuple[float, float] | None = None,
 ) -> None:
-    dataset, participant, tag, segment = rec["dataset"], rec["participant"], rec["tag"], rec["segment"]
+    dataset, participant, tag, segment = (
+        rec["dataset"],
+        rec["participant"],
+        rec["tag"],
+        rec["segment"],
+    )
     seg_path = interim_root / dataset / tag / f"{segment}.parquet"
     if not seg_path.exists():
         raise FileNotFoundError(f"No interim segment at {seg_path}")
@@ -98,8 +110,14 @@ def plot_predictions(
     ]
     ylabel = "nav (normalized)" if "normalized" in str(interim_root) else "nav (raw, clipped)"
     plot_bout_panels(
-        signal["datetime"], signal["nav_x_left_temple"], signal["nav_y_left_temple"],
-        panels, suptitle, out_path, ylim=ylim, ylabel=ylabel,
+        signal["datetime"],
+        signal["nav_x_left_temple"],
+        signal["nav_y_left_temple"],
+        panels,
+        suptitle,
+        out_path,
+        ylim=ylim,
+        ylabel=ylabel,
     )
     print(
         f"  Saved  ->  {out_path}  ({n_detected}/{len(gt_bouts)} detected, {n_false_alarm} false alarms)"
@@ -197,7 +215,10 @@ def main() -> None:
 
     print(f"  Computing predictions fresh from {args.model_path} ...")
     recordings = compute_upscaled_recordings(
-        args.model_path, args.features_path, args.interim_root, window_len,
+        args.model_path,
+        args.features_path,
+        args.interim_root,
+        window_len,
         envelope_window_s=args.envelope_window_s,
     )
 
@@ -211,19 +232,21 @@ def main() -> None:
 
     recordings = [r for r in recordings if matches(r)]
     if not recordings:
-        raise ValueError("No recording matches the given --dataset/--participant/--tag/--segment filters.")
+        raise ValueError(
+            "No recording matches the given --dataset/--participant/--tag/--segment filters."
+        )
 
-    kwargs = dict(
-        interim_root=args.interim_root,
-        cfg=cfg,
-        min_bout_dur=args.min_bout_dur,
-        raw=args.raw,
-        threshold=args.threshold,
-        match_mode=args.match_mode,
-        tolerance_s=args.tolerance_s,
-        iou_thresh=args.iou_thresh,
-        ylim=tuple(args.ylim) if args.ylim else None,
-    )
+    kwargs = {
+        "interim_root": args.interim_root,
+        "cfg": cfg,
+        "min_bout_dur": args.min_bout_dur,
+        "raw": args.raw,
+        "threshold": args.threshold,
+        "match_mode": args.match_mode,
+        "tolerance_s": args.tolerance_s,
+        "iou_thresh": args.iou_thresh,
+        "ylim": tuple(args.ylim) if args.ylim else None,
+    }
 
     if args.all:
         print(f"\nPlotting {len(recordings)} recording(s) -> {args.out_dir}/")

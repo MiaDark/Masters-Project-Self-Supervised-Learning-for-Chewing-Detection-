@@ -12,7 +12,7 @@ reconstruction target requiring a symmetric decoder.
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 class ResidualBlock1D(nn.Module):

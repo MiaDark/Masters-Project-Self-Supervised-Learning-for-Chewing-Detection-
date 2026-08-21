@@ -23,11 +23,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from tqdm import tqdm
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS, channels_for_modality
 from chewing_ssl.common.data.windowing import TARGET_HZ, WindowDataset
+from chewing_ssl.common.tracking.mlflow_utils import log_metrics, log_params, start_run
+from chewing_ssl.common.utils.seed import set_seed
 from chewing_ssl.ssl.models import ARCHITECTURES
 from chewing_ssl.ssl.models.masking import (
     apply_mask_token,
@@ -35,8 +37,6 @@ from chewing_ssl.ssl.models.masking import (
     masked_mse_per_channel,
     sample_mask_batch,
 )
-from chewing_ssl.common.tracking.mlflow_utils import log_metrics, log_params, start_run
-from chewing_ssl.common.utils.seed import set_seed
 
 MODEL_KWARGS = {
     "cnn": {"base_width": 12},
@@ -242,7 +242,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default=None)
     parser.add_argument(
-        "--channels", choices=["all", "nav", "accel"], default="all",
+        "--channels",
+        choices=["all", "nav", "accel"],
+        default="all",
         help="Restrict the encoder to one modality's raw+derivative channels (4 for nav, "
         "6 for accel) instead of the full 10 -- for pretraining a genuine single-modality "
         "encoder. Default 'all' (unchanged behavior). Stamped into the checkpoint so "
@@ -307,9 +309,7 @@ def main() -> None:
     elif args.architecture == "cnn" and args.cnn_base_width is not None:
         model_kwargs["base_width"] = args.cnn_base_width
 
-    model = ARCHITECTURES[args.architecture](
-        n_channels=len(channels), **model_kwargs
-    ).to(device)
+    model = ARCHITECTURES[args.architecture](n_channels=len(channels), **model_kwargs).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"  Params: {n_params:,}  |  model_kwargs: {model_kwargs}")
 
@@ -327,7 +327,8 @@ def main() -> None:
     # Val loader: sorted by segment so the LRU cache never thrashes.
     val_loader = DataLoader(
         WindowDataset(
-            val_index.sort_values("segment_path").reset_index(drop=True), with_label=False,
+            val_index.sort_values("segment_path").reset_index(drop=True),
+            with_label=False,
             channels=channels,
         ),
         batch_size=args.batch_size,
@@ -388,9 +389,16 @@ def main() -> None:
             )
 
             epoch_label = f"epoch {epoch + 1}/{args.epochs}"
-            train_m = run_epoch(model, train_loader, device, mask_kwargs, optimizer, epoch_label, channels)
+            train_m = run_epoch(
+                model, train_loader, device, mask_kwargs, optimizer, epoch_label, channels
+            )
             val_m = run_epoch(
-                model, val_loader, device, mask_kwargs, optimizer=None, epoch_label=epoch_label,
+                model,
+                val_loader,
+                device,
+                mask_kwargs,
+                optimizer=None,
+                epoch_label=epoch_label,
                 channels=channels,
             )
             dt = time.time() - t0
@@ -437,7 +445,10 @@ def main() -> None:
                 print(f"  ✓ New best val_loss={best_val_loss:.4f}  →  {ckpt_path}")
             else:
                 epochs_since_improvement += 1
-                if args.early_stop_patience > 0 and epochs_since_improvement >= args.early_stop_patience:
+                if (
+                    args.early_stop_patience > 0
+                    and epochs_since_improvement >= args.early_stop_patience
+                ):
                     print(
                         f"\n  Early stopping: val_loss hasn't improved for "
                         f"{epochs_since_improvement} epochs (patience={args.early_stop_patience})."

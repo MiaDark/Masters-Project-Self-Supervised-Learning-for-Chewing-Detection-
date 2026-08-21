@@ -15,7 +15,7 @@ flattens a frequency view for Kernel PCA.
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from chewing_ssl.ssl.models.cnn_autoencoder import ConvBlock
 

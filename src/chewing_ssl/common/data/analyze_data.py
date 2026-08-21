@@ -142,7 +142,7 @@ def estimate_rate(path: Path, dataset: str, n_rows: int = 500) -> float | None:
         dt = np.diff(ts)
         dt = dt[dt > 0]
         return float(1.0 / np.median(dt)) if len(dt) else None
-    except Exception:
+    except Exception:  # noqa: BLE001 -- unreadable/malformed file, caller treats None as "skip"
         return None
 
 

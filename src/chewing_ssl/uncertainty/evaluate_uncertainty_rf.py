@@ -49,7 +49,9 @@ from chewing_ssl.uncertainty.rf_uncertainty import tree_ensemble_predict, upscal
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Tree-ensemble uncertainty evaluation (classical ML).")
+    parser = argparse.ArgumentParser(
+        description="Tree-ensemble uncertainty evaluation (classical ML)."
+    )
     parser.add_argument("--model-path", type=Path, required=True)
     parser.add_argument("--features-path", type=Path, required=True)
     parser.add_argument("--interim-root", type=Path, required=True)
@@ -64,7 +66,9 @@ def main() -> None:
     add_postprocess_args(parser)
     add_match_args(parser, default_match_mode="tolerance")
     parser.add_argument("--out-dir", type=Path, default=Path("checkpoints/uncertainty"))
-    parser.add_argument("--summary-csv", type=Path, default=Path("checkpoints/uncertainty_summary.csv"))
+    parser.add_argument(
+        "--summary-csv", type=Path, default=Path("checkpoints/uncertainty_summary.csv")
+    )
     parser.add_argument("--run-name", default=None)
     args = parser.parse_args()
 
@@ -107,7 +111,9 @@ def main() -> None:
             continue
 
         upscaled = upscale_columns(
-            {name: group[name].to_numpy() for name in col_names}, group["start"].to_numpy(), window_len
+            {name: group[name].to_numpy() for name in col_names},
+            group["start"].to_numpy(),
+            window_len,
         )
 
         seg = pd.read_parquet(seg_path, columns=["label", *ENVELOPE_CHANNELS])
@@ -116,7 +122,7 @@ def main() -> None:
         idx = upscaled["row_idx"]
         in_range = idx < n  # guard: predictions can't extend past the segment's real length
 
-        def _scatter(name: str) -> np.ndarray:
+        def _scatter(name: str, n=n, idx=idx, in_range=in_range, upscaled=upscaled) -> np.ndarray:
             full = np.full(n, np.nan, dtype=np.float32)
             full[idx[in_range]] = upscaled[name][in_range]
             return full
@@ -126,10 +132,17 @@ def main() -> None:
 
         envelope = None
         if cfg.envelope_split:
-            signal_mag = np.sqrt((seg[ENVELOPE_CHANNELS].to_numpy(dtype=np.float64) ** 2).sum(axis=1))
+            signal_mag = np.sqrt(
+                (seg[ENVELOPE_CHANNELS].to_numpy(dtype=np.float64) ** 2).sum(axis=1)
+            )
             envelope = compute_envelope(signal_mag, fs=FS, window_s=cfg.envelope_window_s)
 
-        rec = {"participant": participant_id, "gt": y.astype(bool), "probs": mean_full, "envelope": envelope}
+        rec = {
+            "participant": participant_id,
+            "gt": y.astype(bool),
+            "probs": mean_full,
+            "envelope": envelope,
+        }
         bout_result = evaluate_recording(
             rec, cfg, args.min_bout_dur, args.match_mode, args.iou_thresh, args.tolerance_s
         )
@@ -159,7 +172,9 @@ def main() -> None:
 
     # -- Bout-level sanity check (ensemble-mean vs. evaluate_bouts.py's point prediction) --
     dual = aggregate_dual_mode(results)
-    print(f"\n{'-' * 60}\n  Bout-level (from ensemble-mean probability trace, {len(results)} recordings)")
+    print(
+        f"\n{'-' * 60}\n  Bout-level (from ensemble-mean probability trace, {len(results)} recordings)"
+    )
     print(
         f"  IoU F1        : {dual['iou']['f1']:.3f}  "
         f"(precision {dual['iou']['precision']:.3f}, recall {dual['iou']['recall']:.3f})"
@@ -192,8 +207,12 @@ def main() -> None:
     auroc_mi = float(roc_auc_score(~correct, mi)) if has_both else float("nan")
     auroc_ent = float(roc_auc_score(~correct, entropy)) if has_both else float("nan")
     print(f"\n{'-' * 60}\n  Uncertainty vs. correctness")
-    print(f"  Mean epistemic (mutual_info) | correct={mi[correct].mean():.4f}  wrong={mi[~correct].mean():.4f}")
-    print(f"  Mean total (entropy)         | correct={entropy[correct].mean():.4f}  wrong={entropy[~correct].mean():.4f}")
+    print(
+        f"  Mean epistemic (mutual_info) | correct={mi[correct].mean():.4f}  wrong={mi[~correct].mean():.4f}"
+    )
+    print(
+        f"  Mean total (entropy)         | correct={entropy[correct].mean():.4f}  wrong={entropy[~correct].mean():.4f}"
+    )
     print(f"  AUROC(mutual_info -> misclassified) : {auroc_mi:.3f}")
     print(f"  AUROC(entropy -> misclassified)     : {auroc_ent:.3f}")
 
@@ -218,7 +237,9 @@ def main() -> None:
     if args.summary_csv:
         append_summary_row(args.summary_csv, summary)
         print(f"\n  Summary row -> {args.summary_csv}")
-    print(f"  Per-recording arrays (mean/std/entropy/mutual_info/label) -> {args.out_dir}/{run_name}_*.npz")
+    print(
+        f"  Per-recording arrays (mean/std/entropy/mutual_info/label) -> {args.out_dir}/{run_name}_*.npz"
+    )
     print(f"{'=' * 60}\n")
 
 

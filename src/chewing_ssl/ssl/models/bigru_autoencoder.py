@@ -11,7 +11,7 @@ autoencoding, so it's directly comparable to the other two architectures.
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 class BiGRUAutoencoder(nn.Module):

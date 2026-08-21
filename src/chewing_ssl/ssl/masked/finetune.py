@@ -34,9 +34,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -44,12 +44,16 @@ from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS
 from chewing_ssl.common.data.windowing import WindowDataset
 from chewing_ssl.common.tracking.mlflow_utils import log_metrics, log_params, start_run
 from chewing_ssl.common.utils.seed import set_seed
-from chewing_ssl.ssl.masked.pretrain import MODEL_KWARGS, load_index, pick_device, shuffle_by_segment
+from chewing_ssl.ssl.masked.pretrain import (
+    MODEL_KWARGS,
+    load_index,
+    pick_device,
+    shuffle_by_segment,
+)
 from chewing_ssl.ssl.models import ARCHITECTURES
 
-
-
 # Model
+
 
 class ChewingDetector(nn.Module):
     """Any pretrained encoder (CNN or Bi-GRU) + a per-timestep binary chewing head."""
@@ -313,7 +317,10 @@ def main() -> None:
         description="Fine-tune a per-timestep chewing detector on a masked-reconstruction checkpoint."
     )
     parser.add_argument(
-        "--checkpoint", type=Path, required=True, help="From pretrain.py (architecture auto-detected)."
+        "--checkpoint",
+        type=Path,
+        required=True,
+        help="From pretrain.py (architecture auto-detected).",
     )
     parser.add_argument(
         "--dataset", default=None, help="Restrict to one dataset. Default: all datasets."
@@ -349,7 +356,11 @@ def main() -> None:
     encoder, meta = load_pretrained_encoder(args.checkpoint)
     run_name = f"{meta['pretext_task']}_{meta['architecture']}_w{meta['window_len']}"
     model = ChewingDetector(
-        encoder, meta["architecture"], meta["embedding_dim"], args.head_hidden_dim, args.head_dropout
+        encoder,
+        meta["architecture"],
+        meta["embedding_dim"],
+        args.head_hidden_dim,
+        args.head_dropout,
     )
     model.freeze_encoder()
     model.to(device)
@@ -359,8 +370,10 @@ def main() -> None:
     print(f"\n{'=' * 60}")
     print(f"  Fine-tuning chewing detector  [{run_name}]")
     print(f"  Checkpoint    : {args.checkpoint}")
-    print(f"  Architecture  : {meta['architecture']}  |  Pretext task: {meta['pretext_task']}  |  "
-          f"Window: {meta['window_len']} samples")
+    print(
+        f"  Architecture  : {meta['architecture']}  |  Pretext task: {meta['pretext_task']}  |  "
+        f"Window: {meta['window_len']} samples"
+    )
     print(f"  Dataset       : {args.dataset or 'all'}")
     print(f"  Device        : {device}")
     print(f"  Total params  : {n_params:,}  |  Trainable (phase 1): {n_trainable:,}")
@@ -398,7 +411,8 @@ def main() -> None:
     mp_context = "spawn" if args.num_workers > 0 else None
     val_loader = DataLoader(
         WindowDataset(
-            val_index.sort_values("segment_path").reset_index(drop=True), with_label=True,
+            val_index.sort_values("segment_path").reset_index(drop=True),
+            with_label=True,
             channels=meta["channels"],
         ),
         batch_size=args.batch_size,
@@ -409,7 +423,8 @@ def main() -> None:
     )
     test_loader = DataLoader(
         WindowDataset(
-            test_index.sort_values("segment_path").reset_index(drop=True), with_label=True,
+            test_index.sort_values("segment_path").reset_index(drop=True),
+            with_label=True,
             channels=meta["channels"],
         ),
         batch_size=args.batch_size,
@@ -464,16 +479,34 @@ def main() -> None:
             print(f"{'─' * 60}\n  Phase 1: encoder FROZEN\n{'─' * 60}")
             optimizer = torch.optim.AdamW(model.head.parameters(), lr=args.head_lr)
             best_val_f1 = run_phase(
-                1, args.phase1_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
-                device, args.batch_size, pos_weight, args.seed, 0, best_ckpt, best_val_f1, history, extra_meta,
-                num_workers=args.num_workers, pin_memory=pin_memory, channels=meta["channels"],
+                1,
+                args.phase1_epochs,
+                model,
+                optimizer,
+                args.lr_schedule,
+                train_index,
+                val_loader,
+                device,
+                args.batch_size,
+                pos_weight,
+                args.seed,
+                0,
+                best_ckpt,
+                best_val_f1,
+                history,
+                extra_meta,
+                num_workers=args.num_workers,
+                pin_memory=pin_memory,
+                channels=meta["channels"],
             )
 
         # ── Phase 2: only the last encoder block unfrozen ──
         if args.phase2_epochs > 0:
             model.unfreeze_last_encoder_block()
             n_trainable2 = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            print(f"{'─' * 60}\n  Phase 2: last encoder block UNFROZEN  ({n_trainable2:,} trainable)\n{'─' * 60}")
+            print(
+                f"{'─' * 60}\n  Phase 2: last encoder block UNFROZEN  ({n_trainable2:,} trainable)\n{'─' * 60}"
+            )
             optimizer = torch.optim.AdamW(
                 [
                     {"params": model.last_encoder_block_parameters(), "lr": args.last_block_lr},
@@ -481,16 +514,34 @@ def main() -> None:
                 ]
             )
             best_val_f1 = run_phase(
-                2, args.phase2_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
-                device, args.batch_size, pos_weight, args.seed, 1000, best_ckpt, best_val_f1, history, extra_meta,
-                num_workers=args.num_workers, pin_memory=pin_memory, channels=meta["channels"],
+                2,
+                args.phase2_epochs,
+                model,
+                optimizer,
+                args.lr_schedule,
+                train_index,
+                val_loader,
+                device,
+                args.batch_size,
+                pos_weight,
+                args.seed,
+                1000,
+                best_ckpt,
+                best_val_f1,
+                history,
+                extra_meta,
+                num_workers=args.num_workers,
+                pin_memory=pin_memory,
+                channels=meta["channels"],
             )
 
         # ── Phase 3: entire encoder unfrozen ──
         if args.phase3_epochs > 0:
             model.unfreeze_encoder()
             n_trainable3 = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            print(f"{'─' * 60}\n  Phase 3: FULL encoder UNFROZEN  ({n_trainable3:,} trainable)\n{'─' * 60}")
+            print(
+                f"{'─' * 60}\n  Phase 3: FULL encoder UNFROZEN  ({n_trainable3:,} trainable)\n{'─' * 60}"
+            )
             optimizer = torch.optim.AdamW(
                 [
                     {"params": model.encoder.parameters(), "lr": args.full_lr},
@@ -498,9 +549,25 @@ def main() -> None:
                 ]
             )
             best_val_f1 = run_phase(
-                3, args.phase3_epochs, model, optimizer, args.lr_schedule, train_index, val_loader,
-                device, args.batch_size, pos_weight, args.seed, 2000, best_ckpt, best_val_f1, history, extra_meta,
-                num_workers=args.num_workers, pin_memory=pin_memory, channels=meta["channels"],
+                3,
+                args.phase3_epochs,
+                model,
+                optimizer,
+                args.lr_schedule,
+                train_index,
+                val_loader,
+                device,
+                args.batch_size,
+                pos_weight,
+                args.seed,
+                2000,
+                best_ckpt,
+                best_val_f1,
+                history,
+                extra_meta,
+                num_workers=args.num_workers,
+                pin_memory=pin_memory,
+                channels=meta["channels"],
             )
 
         # ── Final test evaluation ──

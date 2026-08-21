@@ -83,7 +83,9 @@ def run(
 
             seg_dir = interim_root / dataset / tag
             for seg_path in sorted(seg_dir.glob("segment_*.parquet")):
-                X, y, starts = segment_recording(seg_path, window_len, purpose_stride[purpose], channels)
+                X, y, starts = segment_recording(
+                    seg_path, window_len, purpose_stride[purpose], channels
+                )
                 if len(y) == 0:
                     continue
                 by_purpose[purpose]["X"].append(X)
@@ -166,7 +168,9 @@ def main() -> None:
         "before train-purpose overlap was reintroduced.",
     )
     parser.add_argument(
-        "--channels", choices=["all", "nav", "accel"], default="all",
+        "--channels",
+        choices=["all", "nav", "accel"],
+        default="all",
         help="Restrict windows to one modality's raw+derivative channels (4 for nav, 6 for "
         "accel) instead of the full 10 -- for training a genuine single-modality model. "
         "Default 'all' (unchanged behavior).",
@@ -196,7 +200,15 @@ def main() -> None:
     print(f"  Channels      : {len(channels)} ({', '.join(channels)})")
     print("=" * 60)
 
-    run(args.interim_root, args.splits, args.out, window_len, purpose_stride, train_overlap, channels)
+    run(
+        args.interim_root,
+        args.splits,
+        args.out,
+        window_len,
+        purpose_stride,
+        train_overlap,
+        channels,
+    )
 
     print(f"\nDone. Segments written to {args.out}/")
 

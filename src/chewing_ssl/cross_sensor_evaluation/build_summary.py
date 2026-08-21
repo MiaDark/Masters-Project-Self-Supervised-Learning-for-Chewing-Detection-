@@ -7,6 +7,7 @@ parsing is needed.
 Run from the project root:
   python -m chewing_ssl.cross_sensor_evaluation.build_summary
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,9 +20,15 @@ ROOT = Path("checkpoints/cross_sensor_evaluation")
 SCOPES = ["native_test", "s11"]
 
 SUMMARY_COLUMNS = [
-    "n_gt_bouts", "n_pred_bouts",
-    "bout_iou_precision", "bout_iou_recall", "bout_iou_f1", "bout_iou_median_iou",
-    "bout_tolerance_precision", "bout_tolerance_recall", "bout_tolerance_f1",
+    "n_gt_bouts",
+    "n_pred_bouts",
+    "bout_iou_precision",
+    "bout_iou_recall",
+    "bout_iou_f1",
+    "bout_iou_median_iou",
+    "bout_tolerance_precision",
+    "bout_tolerance_recall",
+    "bout_tolerance_f1",
     "bout_tolerance_median_iou",
 ]
 

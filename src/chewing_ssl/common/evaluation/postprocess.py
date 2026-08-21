@@ -58,7 +58,7 @@ def smooth_probs(probs: np.ndarray, fs: float = FS, window_s: float = 0.0) -> np
     """
     if window_s <= 0:
         return probs
-    window = max(1, int(round(window_s * fs)))
+    window = max(1, round(window_s * fs))
     return pd.Series(probs).rolling(window, center=True, min_periods=1).mean().to_numpy()
 
 
@@ -97,9 +97,8 @@ def fill_gaps(binary: np.ndarray, fs: float = FS, max_gap_s: float = 2.0) -> np.
 
     for i, v in enumerate(binary):
         if v:
-            if in_gap and seen_chewing:
-                if (i - gap_start) <= max_gap:
-                    result[gap_start:i] = True
+            if in_gap and seen_chewing and (i - gap_start) <= max_gap:
+                result[gap_start:i] = True
             seen_chewing = True
             in_gap = False
         else:

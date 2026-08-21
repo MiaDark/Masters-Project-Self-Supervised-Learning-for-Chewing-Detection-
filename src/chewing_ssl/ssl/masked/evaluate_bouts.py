@@ -62,9 +62,14 @@ from chewing_ssl.common.evaluation.pipeline import (
     postprocess_config_from_args,
 )
 from chewing_ssl.common.evaluation.postprocess import FS, compute_envelope
-from chewing_ssl.common.evaluation.reporting import print_matched_pairs, print_summary_table
-from chewing_ssl.common.evaluation.reporting import print_alignment_summary, print_worst_offenders
-from chewing_ssl.common.evaluation.reporting import capture_console_report, save_console_report
+from chewing_ssl.common.evaluation.reporting import (
+    capture_console_report,
+    print_alignment_summary,
+    print_matched_pairs,
+    print_summary_table,
+    print_worst_offenders,
+    save_console_report,
+)
 from chewing_ssl.ssl.masked.finetune import ChewingDetector
 from chewing_ssl.ssl.models import ARCHITECTURES
 
@@ -126,7 +131,7 @@ def infer_recording(
 
     Returns per-timestep probability array of length N (NaN for uncovered tail).
     """
-    C, N = x_full.shape
+    _C, N = x_full.shape
     probs = np.full(N, np.nan, dtype=np.float32)
     for start in range(0, N - window_len + 1, window_len):
         xw = torch.from_numpy(x_full[:, start : start + window_len]).unsqueeze(0)
@@ -168,7 +173,9 @@ def load_test_recordings(
             x = df[channels].to_numpy(dtype=np.float32).T
             y = df["label"].to_numpy(dtype=np.float32)
             probs = infer_recording(model, x, window_len=window_len)
-            signal_mag = np.sqrt((df[ENVELOPE_CHANNELS].to_numpy(dtype=np.float64) ** 2).sum(axis=1))
+            signal_mag = np.sqrt(
+                (df[ENVELOPE_CHANNELS].to_numpy(dtype=np.float64) ** 2).sum(axis=1)
+            )
             envelope = compute_envelope(signal_mag, fs=FS, window_s=envelope_window_s)
             recordings.append(
                 {
@@ -267,7 +274,9 @@ def main() -> None:
         "--dataset", default=None, help="Restrict to one dataset. Default: all datasets."
     )
     parser.add_argument("--pred-dir", type=Path, default=Path("checkpoints/predictions"))
-    parser.add_argument("--threshold", type=float, default=0.5, help="Raw probability threshold saved to CSV.")
+    parser.add_argument(
+        "--threshold", type=float, default=0.5, help="Raw probability threshold saved to CSV."
+    )
     add_postprocess_args(parser)
     # Override the shared --smooth-window-s default (0.0) for this pipeline --
     # see module docstring for why 2.0s is the validated default here specifically.
@@ -282,7 +291,9 @@ def main() -> None:
             )
     add_match_args(parser, default_match_mode="iou")
     parser.add_argument(
-        "--show-pairs", action="store_true", help="Also print individual matched pairs per participant"
+        "--show-pairs",
+        action="store_true",
+        help="Also print individual matched pairs per participant",
     )
     parser.add_argument(
         "--out-csv",
@@ -293,7 +304,12 @@ def main() -> None:
         "Default: skip (kept opt-in since this script already saves full per-timestep "
         "predictions to --pred-dir).",
     )
-    parser.add_argument("--top-n", type=int, default=15, help="Rows in the worst-offenders console table (--out-csv only).")
+    parser.add_argument(
+        "--top-n",
+        type=int,
+        default=15,
+        help="Rows in the worst-offenders console table (--out-csv only).",
+    )
     parser.add_argument(
         "--window-seconds",
         type=float,
@@ -341,7 +357,9 @@ def main() -> None:
         _run_evaluation(args, cfg, model, meta, run_name, window_len)
 
     if report_path and report_buffer is not None:
-        save_console_report(report_buffer, report_path, title=f"Bout-by-Bout Evaluation -- {run_name}")
+        save_console_report(
+            report_buffer, report_path, title=f"Bout-by-Bout Evaluation -- {run_name}"
+        )
         print(f"  Full console report  →  {report_path}")
 
 
@@ -363,7 +381,9 @@ def _run_evaluation(args, cfg, model, meta, run_name, window_len) -> None:
         f"envelope-split={cfg.envelope_split}  smooth={cfg.smooth_window_s}s"
     )
     print(f"  Predictions  → {args.pred_dir}/")
-    print(f"  Loaded       : phase={meta['phase']}  epoch={(meta['epoch'] or 0) + 1}  val_f1={meta['val_f1']:.3f}\n")
+    print(
+        f"  Loaded       : phase={meta['phase']}  epoch={(meta['epoch'] or 0) + 1}  val_f1={meta['val_f1']:.3f}\n"
+    )
 
     # ── Resolve test recordings (dataset, tag) from the window index itself --
     # more robust than regex-extracting a participant id from segment_path,
@@ -387,10 +407,18 @@ def _run_evaluation(args, cfg, model, meta, run_name, window_len) -> None:
             label = f"{dataset}/{tag}" + (f"/{seg_path.stem}" if len(seg_paths) > 1 else "")
             print(f"  Processing {label} ...", end=" ", flush=True)
             r = evaluate_participant(
-                model, seg_path, label, args.pred_dir, cfg,
-                min_bout_dur=args.min_bout_dur, match_mode=args.match_mode,
-                iou_thresh=args.iou_thresh, tolerance_s=args.tolerance_s,
-                window_len=window_len, threshold=args.threshold, channels=meta["channels"],
+                model,
+                seg_path,
+                label,
+                args.pred_dir,
+                cfg,
+                min_bout_dur=args.min_bout_dur,
+                match_mode=args.match_mode,
+                iou_thresh=args.iou_thresh,
+                tolerance_s=args.tolerance_s,
+                window_len=window_len,
+                threshold=args.threshold,
+                channels=meta["channels"],
             )
             if r is not None:
                 r["dataset"], r["tag"], r["segment"] = dataset, tag, seg_path.stem

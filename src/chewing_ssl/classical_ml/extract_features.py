@@ -62,9 +62,7 @@ def _extract_one(task: tuple[str, np.ndarray, str, float]) -> pd.DataFrame:
         # resulting NaN/Inf is replaced by the train-split median in
         # sanitize() downstream -- this is a diagnostic, not a correctness
         # bug, and would otherwise spam output across thousands of windows.
-        warnings.filterwarnings(
-            "ignore", message="Precision loss occurred in moment calculation.*"
-        )
+        warnings.filterwarnings("ignore", message="Precision loss occurred in moment calculation.*")
         return DRIVERS[family](data, channel, fs, False, 1)
 
 
@@ -146,7 +144,9 @@ def run(
         X = np.load(x_path)
         y = np.load(segments_dir / f"{purpose}_y.npy")
         meta = pd.read_parquet(segments_dir / f"{purpose}_meta.parquet")
-        print(f"  {purpose}: extracting features for {len(y):,} windows x {len(channels)} channels ...")
+        print(
+            f"  {purpose}: extracting features for {len(y):,} windows x {len(channels)} channels ..."
+        )
 
         features = extract_features(X, families, fs, parallel, n_jobs, channels)
         features, medians = sanitize(features, medians if purpose != "train" else None)
@@ -185,8 +185,14 @@ def run(
         "segmentation": segmentation,
     }
     (out_dir / "feature_meta.json").write_text(json.dumps(feature_meta, indent=2))
-    print(f"  Wrote provenance -> {out_dir / 'feature_meta.json'}"
-          + ("" if segmentation else "  (segment_meta.json not found upstream -- segmentation info omitted)"))
+    print(
+        f"  Wrote provenance -> {out_dir / 'feature_meta.json'}"
+        + (
+            ""
+            if segmentation
+            else "  (segment_meta.json not found upstream -- segmentation info omitted)"
+        )
+    )
 
 
 def main() -> None:
@@ -231,7 +237,9 @@ def main() -> None:
     )
     print("\nML feature extraction")
     print(f"  Families      : {', '.join(args.features)}")
-    print(f"  Features/win  : {len(channels)} channels x {n_per_channel}/channel = {len(channels) * n_per_channel}")
+    print(
+        f"  Features/win  : {len(channels)} channels x {n_per_channel}/channel = {len(channels) * n_per_channel}"
+    )
     print(f"  Parallel      : {args.parallel}  (n_jobs={args.n_jobs})")
 
     run(args.segments_dir, args.out, args.features, args.fs, args.parallel, args.n_jobs)

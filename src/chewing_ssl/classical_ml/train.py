@@ -44,7 +44,12 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from chewing_ssl.common.tracking.mlflow_utils import log_artifact, log_metrics, log_params, start_run
+from chewing_ssl.common.tracking.mlflow_utils import (
+    log_artifact,
+    log_metrics,
+    log_params,
+    start_run,
+)
 from chewing_ssl.common.utils.config import load_train_ml_config
 
 META_COLUMNS = ["dataset", "participant", "tag", "segment", "start", "label"]
@@ -312,7 +317,9 @@ def main() -> None:
         input_meta = load_input_meta(args.features_dir)
         input_params = flatten_input_params(input_meta)
         if input_params:
-            print(f"  Input provenance found ({args.features_dir}/feature_meta.json) -- logging to MLflow too")
+            print(
+                f"  Input provenance found ({args.features_dir}/feature_meta.json) -- logging to MLflow too"
+            )
 
         with start_run(run_name=f"sweep_{args.sweep_config.stem}"):
             log_params(
@@ -331,13 +338,23 @@ def main() -> None:
             results = run_sweep(config, args.features_dir, args.out_dir, args.seed, args.threshold)
 
             metric_cols = [
-                "val_accuracy", "val_precision", "val_recall", "val_f1", "val_auc",
-                "test_accuracy", "test_precision", "test_recall", "test_f1", "test_auc",
+                "val_accuracy",
+                "val_precision",
+                "val_recall",
+                "val_f1",
+                "val_auc",
+                "test_accuracy",
+                "test_precision",
+                "test_recall",
+                "test_f1",
+                "test_auc",
                 "train_seconds",
             ]
             for _, row in results.iterrows():
                 with start_run(run_name=row["name"], nested=True):
-                    param_cols = [c for c in row.index if c.startswith("param_") and pd.notna(row[c])]
+                    param_cols = [
+                        c for c in row.index if c.startswith("param_") and pd.notna(row[c])
+                    ]
                     log_params({"model_type": row["model_type"], **{c: row[c] for c in param_cols}})
                     log_metrics({c: float(row[c]) for c in metric_cols if pd.notna(row[c])})
 
@@ -355,7 +372,13 @@ def main() -> None:
             # which channels this checkpoint expects, mirroring the masked-SSL
             # side's checkpoint-stamped "channels" key.
             (args.out_dir / "model_meta.json").write_text(
-                json.dumps({"channels": input_meta.get("channels"), "features_dir": str(args.features_dir)}, indent=2)
+                json.dumps(
+                    {
+                        "channels": input_meta.get("channels"),
+                        "features_dir": str(args.features_dir),
+                    },
+                    indent=2,
+                )
             )
             print(f"\n  Best combo by {args.sweep_metric}: {best['name']} ({best['model_type']})")
             print(
@@ -368,7 +391,9 @@ def main() -> None:
             )
             print(f"  Copied -> {best_path}")
 
-            log_params({"best_combo_name": best["name"], "best_combo_model_type": best["model_type"]})
+            log_params(
+                {"best_combo_name": best["name"], "best_combo_model_type": best["model_type"]}
+            )
             log_metrics({f"best_{c}": float(best[c]) for c in metric_cols if pd.notna(best[c])})
 
         print(f"\n{'=' * 60}\n")
@@ -379,7 +404,9 @@ def main() -> None:
     input_meta = load_input_meta(args.features_dir)
     input_params = flatten_input_params(input_meta)
     if input_params:
-        print(f"  Input provenance found ({args.features_dir}/feature_meta.json) -- logging to MLflow too")
+        print(
+            f"  Input provenance found ({args.features_dir}/feature_meta.json) -- logging to MLflow too"
+        )
 
     X_train, y_train, _ = load_split(args.features_dir, "train")
     X_val, y_val, _ = load_split(args.features_dir, "val")
@@ -404,7 +431,9 @@ def main() -> None:
             }
         )
 
-        pipeline = Pipeline([("scaler", StandardScaler()), ("model", MODELS[args.model](args.seed))])
+        pipeline = Pipeline(
+            [("scaler", StandardScaler()), ("model", MODELS[args.model](args.seed))]
+        )
 
         print(f"\n  Fitting {args.model} ...")
         pipeline.fit(X_train, y_train)
@@ -424,7 +453,10 @@ def main() -> None:
         model_path = args.out_dir / f"{args.model}.joblib"
         joblib.dump(pipeline, model_path)
         (args.out_dir / "model_meta.json").write_text(
-            json.dumps({"channels": input_meta.get("channels"), "features_dir": str(args.features_dir)}, indent=2)
+            json.dumps(
+                {"channels": input_meta.get("channels"), "features_dir": str(args.features_dir)},
+                indent=2,
+            )
         )
         print(f"\n  Saved model -> {model_path}")
 

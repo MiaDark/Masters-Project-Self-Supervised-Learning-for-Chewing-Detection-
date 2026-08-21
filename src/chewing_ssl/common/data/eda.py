@@ -390,7 +390,7 @@ def run_batch(datasets: list[str], root: Path, out_root: Path, zoom_minutes: flo
             try:
                 summary = run(dataset, path, out_dir, tag, zoom_minutes, verbose=False)
                 rows.append(_flatten_summary(dataset, tag, summary))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- one bad recording shouldn't abort the batch
                 print(f"  FAILED: {exc}")
                 rows.append({"dataset": dataset, "tag": tag, "error": str(exc)})
         if rows:

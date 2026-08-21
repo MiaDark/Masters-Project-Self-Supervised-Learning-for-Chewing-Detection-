@@ -8,8 +8,8 @@ from torch.utils.data import DataLoader
 
 from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS
 from chewing_ssl.common.data.windowing import WINDOW_LEN, WindowDataset
-from chewing_ssl.ssl.models.bigru_autoencoder import BiGRUAutoencoder
 from chewing_ssl.ssl.masked.pretrain import load_index, pick_device, run_epoch
+from chewing_ssl.ssl.models.bigru_autoencoder import BiGRUAutoencoder
 from tests.conftest import make_interim_segment
 
 
@@ -57,7 +57,7 @@ def _tiny_loader(tmp_path, n_windows=12):
             "start": i,
             "end": i + WINDOW_LEN,
         }
-        for i in range(0, n_windows)
+        for i in range(n_windows)
     ]
     index = pd.DataFrame(rows)
     return DataLoader(WindowDataset(index, with_label=False), batch_size=4, shuffle=False)

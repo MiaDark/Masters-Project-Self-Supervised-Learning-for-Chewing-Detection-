@@ -24,8 +24,8 @@ from chewing_ssl.common.evaluation.postprocess import PostprocessConfig
 from chewing_ssl.common.evaluation.sweep import (
     COORDINATE_DESCENT_GRID,
     coordinate_descent_sweep,
-    sweep_postprocessing,
     summarize_best,
+    sweep_postprocessing,
 )
 from chewing_ssl.ssl.masked.evaluate_bouts import load_finetuned_model, load_test_recordings
 
@@ -73,7 +73,9 @@ def main() -> None:
         "2.0, not classical ML's 0.0) -- only matters if smooth_window_s isn't itself "
         "in the sweep grid, or as the seed value before it's tuned.",
     )
-    parser.add_argument("--out-csv", type=Path, default=Path("checkpoints/postprocess_sweep_masked.csv"))
+    parser.add_argument(
+        "--out-csv", type=Path, default=Path("checkpoints/postprocess_sweep_masked.csv")
+    )
     args = parser.parse_args()
 
     from chewing_ssl.common.data.windowing import TARGET_HZ

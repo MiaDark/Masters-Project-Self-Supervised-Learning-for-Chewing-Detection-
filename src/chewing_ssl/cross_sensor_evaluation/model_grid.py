@@ -2,6 +2,7 @@
 masked_ssl} x {global-norm, per-file-norm} x {all, nav-only, accel-only
 channels}. Kept in one place so the model list and checkpoint/feature paths
 are defined once rather than repeated per script."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -57,27 +58,43 @@ CLASSICAL_ML = {
 MASKED_SSL = {
     "masked_ssl_global_all": (
         Path("checkpoints/finetune_masked_80_10_10_clipped/span_bigru_w200_best.pt"),
-        GLOBAL_INTERIM, GLOBAL_PROCESSED, "global",
+        GLOBAL_INTERIM,
+        GLOBAL_PROCESSED,
+        "global",
     ),
     "masked_ssl_global_nav": (
         Path("checkpoints/finetune_masked_80_10_10_clipped_nav_only/span_bigru_w200_best.pt"),
-        GLOBAL_INTERIM, GLOBAL_PROCESSED, "global",
+        GLOBAL_INTERIM,
+        GLOBAL_PROCESSED,
+        "global",
     ),
     "masked_ssl_global_accel": (
         Path("checkpoints/finetune_masked_80_10_10_clipped_accel_only/span_bigru_w200_best.pt"),
-        GLOBAL_INTERIM, GLOBAL_PROCESSED, "global",
+        GLOBAL_INTERIM,
+        GLOBAL_PROCESSED,
+        "global",
     ),
     "masked_ssl_perfile_all": (
         Path("checkpoints/finetune_masked_80_10_10_per_file_clipped/span_bigru_w200_best.pt"),
-        PERFILE_INTERIM, PERFILE_PROCESSED, "per_file",
+        PERFILE_INTERIM,
+        PERFILE_PROCESSED,
+        "per_file",
     ),
     "masked_ssl_perfile_nav": (
-        Path("checkpoints/finetune_masked_80_10_10_per_file_clipped_nav_only/span_bigru_w200_best.pt"),
-        PERFILE_INTERIM, PERFILE_PROCESSED, "per_file",
+        Path(
+            "checkpoints/finetune_masked_80_10_10_per_file_clipped_nav_only/span_bigru_w200_best.pt"
+        ),
+        PERFILE_INTERIM,
+        PERFILE_PROCESSED,
+        "per_file",
     ),
     "masked_ssl_perfile_accel": (
-        Path("checkpoints/finetune_masked_80_10_10_per_file_clipped_accel_only/span_bigru_w200_best.pt"),
-        PERFILE_INTERIM, PERFILE_PROCESSED, "per_file",
+        Path(
+            "checkpoints/finetune_masked_80_10_10_per_file_clipped_accel_only/span_bigru_w200_best.pt"
+        ),
+        PERFILE_INTERIM,
+        PERFILE_PROCESSED,
+        "per_file",
     ),
 }
 

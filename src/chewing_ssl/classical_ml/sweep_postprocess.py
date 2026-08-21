@@ -26,8 +26,8 @@ from chewing_ssl.common.evaluation.postprocess import PostprocessConfig
 from chewing_ssl.common.evaluation.sweep import (
     COORDINATE_DESCENT_GRID,
     coordinate_descent_sweep,
-    sweep_postprocessing,
     summarize_best,
+    sweep_postprocessing,
 )
 
 

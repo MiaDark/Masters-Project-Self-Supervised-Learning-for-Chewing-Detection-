@@ -30,10 +30,10 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 import numpy as np
 import pandas as pd
 import torch
+from matplotlib import gridspec
 from sklearn.metrics import (
     confusion_matrix,
     f1_score,
@@ -44,9 +44,9 @@ from sklearn.metrics import (
 from torch.utils.data import DataLoader
 
 from chewing_ssl.common.data.preprocess import SENSOR_CHANNELS
-from chewing_ssl.common.data.windowing import WindowDataset, WINDOW_LEN
-from chewing_ssl.ssl.masked.finetune import ChewingDetector, load_index
+from chewing_ssl.common.data.windowing import WINDOW_LEN, WindowDataset
 from chewing_ssl.common.evaluation.postprocess import postprocess
+from chewing_ssl.ssl.masked.finetune import ChewingDetector, load_index
 
 CHANNEL_LABELS = {
     "nav_x_left_temple": "Nav X (L Temple)",

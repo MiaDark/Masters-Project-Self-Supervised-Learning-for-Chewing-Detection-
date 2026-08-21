@@ -54,19 +54,30 @@ from chewing_ssl.common.evaluation.pipeline import (
     add_postprocess_args,
     aggregate_alignment,
     aggregate_dual_mode,
-    build_summary_row,
     append_summary_row,
+    build_summary_row,
     evaluate_recording,
     ledger_rows_for_recording,
     postprocess_config_from_args,
 )
 from chewing_ssl.common.evaluation.postprocess import FS
+from chewing_ssl.common.evaluation.reporting import (
+    capture_console_report,
+    print_alignment_summary,
+    print_worst_offenders,
+    save_console_report,
+)
 from chewing_ssl.common.evaluation.reporting import fmt as _fmt
-from chewing_ssl.common.evaluation.reporting import print_alignment_summary, print_worst_offenders
-from chewing_ssl.common.evaluation.reporting import capture_console_report, save_console_report
 
 
-def evaluate_raw(recordings: list[dict], threshold: float, min_bout_dur: float, match_mode: str, iou_thresh: float, tolerance_s: float) -> dict:
+def evaluate_raw(
+    recordings: list[dict],
+    threshold: float,
+    min_bout_dur: float,
+    match_mode: str,
+    iou_thresh: float,
+    tolerance_s: float,
+) -> dict:
     """Raw (no postprocessing) threshold-only baseline, for the "does
     postprocessing actually help" comparison this script prints -- kept
     local rather than in the shared pipeline module since it's a one-off
@@ -94,9 +105,15 @@ def evaluate_raw(recordings: list[dict], threshold: float, min_bout_dur: float, 
     rec_ = tp / (tp + fn) if (tp + fn) > 0 else float("nan")
     f1 = 2 * prec * rec_ / (prec + rec_) if (prec + rec_) > 0 else float("nan")
     return {
-        "tp": tp, "fp": fp, "fn": fn, "precision": prec, "recall": rec_, "f1": f1,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "precision": prec,
+        "recall": rec_,
+        "f1": f1,
         "median_iou": float(np.median(ious)) if ious else float("nan"),
-        "n_gt_bouts": n_gt_bouts, "n_pred_bouts": n_pred_bouts,
+        "n_gt_bouts": n_gt_bouts,
+        "n_pred_bouts": n_pred_bouts,
     }
 
 
@@ -129,7 +146,10 @@ def main() -> None:
         "Default: configs/preprocessing.yaml's value (segment.py's own default).",
     )
     parser.add_argument(
-        "--threshold", type=float, default=0.5, help="Raw (no postprocessing) binarization threshold."
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="Raw (no postprocessing) binarization threshold.",
     )
     add_postprocess_args(parser)
     add_match_args(parser, default_match_mode="tolerance")
@@ -141,9 +161,19 @@ def main() -> None:
         "detected/missed/false_alarm) here, e.g. checkpoints/ml_bout_ledger.csv. "
         "Uses the POSTPROCESSED predictions.",
     )
-    parser.add_argument("--top-n", type=int, default=15, help="Rows in the worst-offenders console table.")
-    parser.add_argument("--run-name", default=None, help="Identity for --summary-csv's row, e.g. 'rf_4s' / 'rf_2s'. Defaults to --model-path's stem.")
-    parser.add_argument("--model-type", default=None, help="Recorded in --summary-csv for reference (e.g. 'random_forest').")
+    parser.add_argument(
+        "--top-n", type=int, default=15, help="Rows in the worst-offenders console table."
+    )
+    parser.add_argument(
+        "--run-name",
+        default=None,
+        help="Identity for --summary-csv's row, e.g. 'rf_4s' / 'rf_2s'. Defaults to --model-path's stem.",
+    )
+    parser.add_argument(
+        "--model-type",
+        default=None,
+        help="Recorded in --summary-csv for reference (e.g. 'random_forest').",
+    )
     parser.add_argument(
         "--window-metrics-json",
         type=Path,
@@ -181,7 +211,9 @@ def main() -> None:
         _run_evaluation(args, cfg, window_len, run_name)
 
     if report_path and report_buffer is not None:
-        save_console_report(report_buffer, report_path, title=f"Bout-level Evaluation -- {run_name}")
+        save_console_report(
+            report_buffer, report_path, title=f"Bout-level Evaluation -- {run_name}"
+        )
         print(f"  Full console report  →  {report_path}")
 
 
@@ -190,7 +222,10 @@ def _run_evaluation(args, cfg, window_len, run_name) -> None:
     print("=" * 78)
     print(f"  Computing predictions fresh from {args.model_path} ...")
     recordings = compute_upscaled_recordings(
-        args.model_path, args.features_path, args.interim_root, window_len,
+        args.model_path,
+        args.features_path,
+        args.interim_root,
+        window_len,
         envelope_window_s=args.envelope_window_s,
     )
     print(
@@ -199,14 +234,27 @@ def _run_evaluation(args, cfg, window_len, run_name) -> None:
         f"min bout: {args.min_bout_dur}s   envelope-split: {cfg.envelope_split}   smooth: {cfg.smooth_window_s}s\n"
     )
 
-    raw_result = evaluate_raw(recordings, args.threshold, args.min_bout_dur, args.match_mode, args.iou_thresh, args.tolerance_s)
+    raw_result = evaluate_raw(
+        recordings,
+        args.threshold,
+        args.min_bout_dur,
+        args.match_mode,
+        args.iou_thresh,
+        args.tolerance_s,
+    )
     post_results = [
-        evaluate_recording(rec, cfg, args.min_bout_dur, args.match_mode, args.iou_thresh, args.tolerance_s)
+        evaluate_recording(
+            rec, cfg, args.min_bout_dur, args.match_mode, args.iou_thresh, args.tolerance_s
+        )
         for rec in recordings
     ]
     post_dual = aggregate_dual_mode(post_results)
     post_display = post_dual[args.match_mode]
-    post_display = {**post_display, "n_gt_bouts": post_dual["n_gt_bouts"], "n_pred_bouts": post_dual["n_pred_bouts"]}
+    post_display = {
+        **post_display,
+        "n_gt_bouts": post_dual["n_gt_bouts"],
+        "n_pred_bouts": post_dual["n_pred_bouts"],
+    }
 
     print_result("raw (threshold only)", raw_result)
     print_result("postprocessed (hysteresis+gapfill+splits)", post_display)

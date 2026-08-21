@@ -33,7 +33,9 @@ def find_bite_window(
     (a visually tight, legible cluster) -- falls back to just the first
     `n_bites` bouts, however spread out, if no tight run exists."""
     if len(bouts) < n_bites:
-        raise SystemExit(f"Only {len(bouts)} ground-truth bite(s) in this recording, need {n_bites}.")
+        raise SystemExit(
+            f"Only {len(bouts)} ground-truth bite(s) in this recording, need {n_bites}."
+        )
 
     for i in range(len(bouts) - n_bites + 1):
         window = bouts.iloc[i : i + n_bites]
@@ -147,8 +149,12 @@ def plot_one(
     baseline_y = view.loc[at_rest, NAV_Y].mean()
 
     fig, ax = plt.subplots(figsize=(12, 4.5))
-    ax.plot(view["t_s"], view[NAV_X], color=PALETTE["nav_x"], linewidth=0.9, label="nav_x_left_temple")
-    ax.plot(view["t_s"], view[NAV_Y], color=PALETTE["nav_y"], linewidth=0.9, label="nav_y_left_temple")
+    ax.plot(
+        view["t_s"], view[NAV_X], color=PALETTE["nav_x"], linewidth=0.9, label="nav_x_left_temple"
+    )
+    ax.plot(
+        view["t_s"], view[NAV_Y], color=PALETTE["nav_y"], linewidth=0.9, label="nav_y_left_temple"
+    )
     ax.axhline(baseline_x, color=PALETTE["nav_x"], linestyle="--", linewidth=0.7, alpha=0.5)
     ax.axhline(baseline_y, color=PALETTE["nav_y"], linestyle="--", linewidth=0.7, alpha=0.5)
 
@@ -187,7 +193,7 @@ def plot_one(
                 "",
                 xy=(gap_start, arrow_y),
                 xytext=(gap_end, arrow_y),
-                arrowprops=dict(arrowstyle="<->", color=PALETTE["baseline"], linewidth=1.1),
+                arrowprops={"arrowstyle": "<->", "color": PALETTE["baseline"], "linewidth": 1.1},
             )
             ax.text(
                 (gap_start + gap_end) / 2,
@@ -201,7 +207,7 @@ def plot_one(
 
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Temple navigation signal (filtered)")
-    ax.set_title(f"Left-temple navigation signal during chewing")
+    ax.set_title("Left-temple navigation signal during chewing")
     ax.grid(alpha=0.2)
     ax.legend(loc="upper right", fontsize=9)
     fig.tight_layout()
@@ -249,7 +255,9 @@ def main() -> None:
         help="Zoom to this exact row range instead of auto-selecting bites. Row i is i/50 s into "
         "the recording's longest gap-free segment (post-resample-to-50Hz). Overrides --n-bites etc.",
     )
-    parser.add_argument("--end-row", type=int, default=None, help="See --start-row. Default: last row.")
+    parser.add_argument(
+        "--end-row", type=int, default=None, help="See --start-row. Default: last row."
+    )
     parser.add_argument(
         "--meal",
         type=int,

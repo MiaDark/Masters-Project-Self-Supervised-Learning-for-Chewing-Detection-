@@ -111,12 +111,17 @@ def add_match_args(parser: argparse.ArgumentParser, default_match_mode: str = "t
         help=f"How a predicted bout is credited against ground truth (default: {default_match_mode}).",
     )
     parser.add_argument(
-        "--tolerance-s", type=float, default=5.0, help="--match-mode tolerance: max onset/offset deviation (s)."
+        "--tolerance-s",
+        type=float,
+        default=5.0,
+        help="--match-mode tolerance: max onset/offset deviation (s).",
     )
     parser.add_argument(
         "--iou-thresh", type=float, default=0.3, help="--match-mode iou: minimum IoU to match."
     )
-    parser.add_argument("--min-bout-dur", type=float, default=0.5, help="Minimum bout duration (s).")
+    parser.add_argument(
+        "--min-bout-dur", type=float, default=0.5, help="Minimum bout duration (s)."
+    )
 
 
 # ── Per-recording evaluation ─────────────────────────────────────────────────
@@ -156,7 +161,11 @@ def _alignment_stats(events: list[dict]) -> dict:
         event_counts[label] = event_counts.get(label, 0) + 1
         gt_by_label[label] = gt_by_label.get(label, 0) + ev["n_gt"]
         pred_by_label[label] = pred_by_label.get(label, 0) + ev["n_pred"]
-    return {"event_counts": event_counts, "gt_bites_by_label": gt_by_label, "pred_bouts_by_label": pred_by_label}
+    return {
+        "event_counts": event_counts,
+        "gt_bites_by_label": gt_by_label,
+        "pred_bouts_by_label": pred_by_label,
+    }
 
 
 def evaluate_recording(
@@ -292,7 +301,11 @@ def ledger_rows_for_recording(ident: dict, result: dict, match_mode: str) -> lis
         ev = by_id.get(id(bout))
         if ev is None:
             return {"cluster_label": None, "cluster_n_gt": None, "cluster_n_pred": None}
-        return {"cluster_label": ev["label"], "cluster_n_gt": ev["n_gt"], "cluster_n_pred": ev["n_pred"]}
+        return {
+            "cluster_label": ev["label"],
+            "cluster_n_gt": ev["n_gt"],
+            "cluster_n_pred": ev["n_pred"],
+        }
 
     rows = []
     for m in match_result["matches"]:

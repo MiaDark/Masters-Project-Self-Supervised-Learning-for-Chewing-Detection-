@@ -64,7 +64,9 @@ def run_batch(
         tags = list_tags(interim_root, dataset)
         print(f"\n=== {dataset}: {len(tags)} recording(s) ===")
         for i, tag in enumerate(tags, 1):
-            stats = normalize_recording(interim_root, out_root, dataset, tag, channels, lower_pct, upper_pct)
+            stats = normalize_recording(
+                interim_root, out_root, dataset, tag, channels, lower_pct, upper_pct
+            )
             if stats is None:
                 print(f"  [{i}/{len(tags)}] {tag}: no segments -- skipped")
                 continue
@@ -85,7 +87,9 @@ def main() -> None:
     args = parser.parse_args()
 
     datasets = [args.dataset] if args.dataset else DATASETS
-    run_batch(args.interim_root, args.out, datasets, lower_pct=args.lower_pct, upper_pct=args.upper_pct)
+    run_batch(
+        args.interim_root, args.out, datasets, lower_pct=args.lower_pct, upper_pct=args.upper_pct
+    )
 
 
 if __name__ == "__main__":

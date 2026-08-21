@@ -81,7 +81,9 @@ def print_summary_table(results: list[dict], match_mode: str = "iou") -> None:
         crit = "tolerance = {:.1f}s".format(results[0].get("_tolerance_s", 2.0))
     else:
         crit = "IoU threshold = {:.2f}".format(results[0].get("_iou_thresh", 0.3))
-    print(f"  Bout-by-bout evaluation  ({crit},  min bout = {results[0].get('_min_dur', 0.5):.1f}s)")
+    print(
+        f"  Bout-by-bout evaluation  ({crit},  min bout = {results[0].get('_min_dur', 0.5):.1f}s)"
+    )
     print("=" * len(hdr))
     print(hdr)
     print("-" * len(hdr))
@@ -225,7 +227,7 @@ def print_alignment_summary(agg: dict) -> None:
 
 
 def print_matched_pairs(results: list[dict], max_per_participant: int = 5) -> None:
-    print("\n\n  Matched pairs (up to {} per recording)".format(max_per_participant))
+    print(f"\n\n  Matched pairs (up to {max_per_participant} per recording)")
     print("  " + "-" * 72)
     for r in results:
         print(f"\n  {r['participant']}  —  {r['tp']} matched / {r['n_gt_bouts']} GT bouts")
