@@ -665,12 +665,16 @@ own MC-Dropout analysis.
 
 | Config | bout IoU F1 | bout tolerance F1 | classical_ml IoU F1 (same config, for reference) |
 |---|---|---|---|
-| global, all | 0.772 | 0.560 | 0.769 |
+| global, all | 0.772 | 0.560 | 0.751 |
 | global, nav-only | 0.758 | 0.539 | 0.721 |
 | global, accel-only | 0.635 | 0.400 | 0.673 |
 | per-file, all | 0.777 | 0.521 | 0.748 |
 | per-file, nav-only | 0.694 | 0.475 | 0.745 |
 | per-file, accel-only | 0.698 | 0.496 | 0.646 |
+
+(`classical_ml`'s `global, all` corrected 2026-08-21 from 0.769 to 0.751 -- that row was
+computed from a LogisticRegression rather than the Random Forest every other cell in this
+grid uses; see `checkpoints/uncertainty_models/MANIFEST.md`'s "The LR/RF resolution".)
 
 Every accel-only masked_ssl variant now genuinely predicts (513-581
 predicted bouts, not 0) — round 1's "0 predictions" finding is fully
@@ -692,12 +696,18 @@ domain-shift test available in this project:
 
 | Config | Native IoU F1 | s11 IoU F1 | Relative drop |
 |---|---|---|---|
-| global, all | 0.772 | 0.654 | 15.2% |
+| global, all | 0.772 | 0.591 | 23.4% |
 | global, nav-only | 0.758 | 0.646 | 14.8% |
 | **global, accel-only** | 0.635 | **0.120** | **81.1%** |
 | per-file, all | 0.777 | 0.551 | 29.1% |
 | per-file, nav-only | 0.694 | 0.618 | 10.9% |
 | **per-file, accel-only** | 0.698 | **0.209** | **70.1%** |
+
+(`global, all`'s s11 IoU F1 updated 2026-08-21 from 0.654 to 0.591 -- S11's right-temple
+nav X axis is now mirrored to correct for the physical left/right-temple sign flip
+before this config was re-evaluated; every other row above still reflects the
+unmirrored geometry, not yet re-checked. Mirroring made this config's S11 score worse,
+not better -- see `checkpoints/cross_sensor_evaluation/CONCLUSION.md`.)
 
 **The two accel-only variants are dramatic, isolated outliers.** Every
 other masked_ssl configuration degrades by a modest, unremarkable

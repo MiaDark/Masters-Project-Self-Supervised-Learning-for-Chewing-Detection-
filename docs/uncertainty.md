@@ -140,11 +140,15 @@ run 2026-08-12:
 | rf_perfile_accel | classical_ml | per_file | accel | 0.641 | 0.369 | 0.046 | 0.101→0.156 | 0.687 (worst) | 0.812 |
 
 **Sanity check**: bout IoU F1 matches `checkpoints/cross_sensor_evaluation/summary.csv`
-(native-test scope) within ~0.005 on 11/12 rows — confirms the MC-mean / ensemble-mean point
-prediction reproduces the already-trusted deterministic numbers, i.e. the uncertainty
-machinery doesn't silently shift the model's operating point. The one exception,
-`rf_global_all` (0.750 here vs. 0.769 on record), is very likely explained by the LR/RF
-sweep-winner correction described in the MANIFEST — not yet independently re-verified.
+(native-test scope) within ~0.005 on all 12 rows — confirms the MC-mean / ensemble-mean
+point prediction reproduces the already-trusted deterministic numbers, i.e. the
+uncertainty machinery doesn't silently shift the model's operating point. (This document's
+`rf_global_all` = 0.750 previously appeared to mismatch `summary.csv`'s `classical_ml_global_all`
+= 0.769; confirmed 2026-08-21 that `summary.csv` was the one that was wrong —
+`model_grid.py` pointed that config at the raw sweep's LogisticRegression winner rather
+than the intended `rf_06_regularized_leaf5` Random Forest this document already used
+correctly. `model_grid.py` and `summary.csv` are now fixed to match, at 0.751 — see
+`checkpoints/uncertainty_models/MANIFEST.md`'s "The LR/RF resolution" section.)
 
 ## 5. Findings
 
@@ -206,7 +210,6 @@ numbers `cross_sensor_evaluation/` already established.
 - **Not yet folded into the energy analysis** (`src/chewing_ssl/energy/` is still an empty
   stub) — the accuracy/confidence/energy three-way trade-off decision 002 and the original
   project plan both call for isn't assembled yet.
-- **`rf_global_all`'s 0.750 vs. 0.769 discrepancy** (§4) not independently re-verified.
 
 ## 8. Figures
 
