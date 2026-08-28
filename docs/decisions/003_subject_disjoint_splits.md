@@ -18,9 +18,6 @@ assigned to exactly one split, never individual windows. The held-out test set i
 fixed by participant *before any modelling* to prevent leakage. Evaluation uses
 subject-wise cross-validation where practical.
 
-For Spectacle specifically, a participant index appearing in both `week2` and
-`week3` is treated as the **same person**, so both weeks for that participant fall
-on the same side of every split.
 
 ## Consequences
 

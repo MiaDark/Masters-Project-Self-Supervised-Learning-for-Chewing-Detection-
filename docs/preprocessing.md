@@ -87,7 +87,7 @@ produced `splits.json`. Concretely, three steps:
    discovery only needs directory structure, not normalized content, so the
    raw tree is sufficient here.)
 3. `refit_global_norm.py` → fits mean/std per channel from **pretrain-eligible
-   segments only** (SIPM/Sussex train-split + Spectacle pretrain-only),
+   segments only** (D1/D2 train-split + D5 pretrain-only),
    writes `data/processed/global_stats.json`, and writes every segment —
    train, val, test, meal-test alike — normalized with those same fixed
    stats to `data/interim_normalized/<dataset>/<tag>/`.
@@ -99,8 +99,8 @@ produced `splits.json`. Concretely, three steps:
 
 Two independent things, both subject-disjoint (decision 003):
 
-- **Splits**: assigns each participant to train/val/test (SIPM/Sussex,
-  60/20/20) or pretrain-only/meal-test-holdout (Spectacle, 80/20),
+- **Splits**: assigns each participant to train/val/test (D1/D2,
+  60/20/20) or pretrain-only/meal-test-holdout (D5, 80/20),
   deterministically from a seed, and writes `splits.json`.
 - **Window index**: NOT materialized window tensors — a lightweight index
   (one row per window: which segment file, which `[start, end)` sample
@@ -151,7 +151,7 @@ zoomed to the longest chewing bout so the plot actually shows chewing
 dynamics:
 
 ```bash
-python scripts/plot_preprocessing_steps.py --dataset SIPMEatingStudy --channel accel_z
+python scripts/plot_preprocessing_steps.py --dataset SIPMEatingStudy --channel accel_z  # D1
 ```
 
 Falls back to a clearly-labelled segment-level mean/std for the normalized

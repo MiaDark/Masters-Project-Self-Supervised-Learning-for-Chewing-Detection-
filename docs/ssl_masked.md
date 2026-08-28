@@ -121,7 +121,7 @@ and inter-bite-pause durations directly from the signal:
 - **68% of real inter-bite pauses are shorter than a 4s window** — most of
   the "non-chewing" signal at this window scale can't form a clean example
   on its own from within-meal data alone.
-- `Spectacle_NonMeal` provides ~4.3x more usable non-chewing signal
+- `D5` provides ~4.3x more usable non-chewing signal
   (94,474s) than all within-meal gaps combined (22,145s) — confirmed as the
   primary, not supplementary, source of clean negative training data.
 
@@ -465,14 +465,14 @@ verified directly against the file on disk):
 
 | Dataset | Train | Validation | Test | Total participants |
 |---|---|---|---|---|
-| SIPMEatingStudy | 24 | 3 | 4 | 31 |
-| SussexEatingUK | 32 | 4 | 4 | 40 |
-| FEIT_eating_S05 | 28 | 3 | 5 | 36 |
-| Office_eating_s05 | 20 | 2 | 4 | 26 |
-| Spectacle_NonMeal | 17 | 2 | 3 | 22 |
+| D1 | 24 | 3 | 4 | 31 |
+| D2 | 32 | 4 | 4 | 40 |
+| D3 | 28 | 3 | 5 | 36 |
+| D4 | 20 | 2 | 4 | 26 |
+| D5 | 17 | 2 | 3 | 22 |
 
 This is a smaller absolute validation/test population per dataset than the
-original 60/20/20 division (e.g. `Office_eating_s05`'s validation split
+original 60/20/20 division (e.g. `D4`'s validation split
 shrinks from 5 to 2 participants) traded for a larger training
 population — the same tradeoff noted for classical ML, applying identically
 here since both pipelines share one `splits.json`.
@@ -552,12 +552,12 @@ table on disk):
 
 | Recording | GT | Pred | TP | FP | FN | Prec | Rec | F1 | mIoU | Onset lag | Dur Δ |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| SIPMEatingStudy/p01 | 40 | 35 | 34 | 1 | 6 | 0.971 | 0.850 | 0.907 | 0.641 | +0.97s | −2.19s |
-| SussexEatingUK/EMTEQTHP10 | 26 | 29 | 23 | 6 | 3 | 0.793 | 0.885 | 0.836 | 0.769 | +1.24s | −0.64s |
-| SussexEatingUK/EMTEQRAP15 | 23 | 1 | 1 | 0 | 22 | 1.000 | 0.043 | 0.083 | 0.435 | +5.16s | −5.54s |
+| D1/p01 | 40 | 35 | 34 | 1 | 6 | 0.971 | 0.850 | 0.907 | 0.641 | +0.97s | −2.19s |
+| D2/EMTEQTHP10 | 26 | 29 | 23 | 6 | 3 | 0.793 | 0.885 | 0.836 | 0.769 | +1.24s | −0.64s |
+| D2/EMTEQRAP15 | 23 | 1 | 1 | 0 | 22 | 1.000 | 0.043 | 0.083 | 0.435 | +5.16s | −5.54s |
 | TOTAL | 524 | 541 | 408 | 133 | 116 | 0.754 | 0.779 | 0.766 | 0.678 | +0.96s | −1.83s |
 
-`SussexEatingUK/EMTEQRAP15` is a genuine outlier (22 of 23 bites missed) —
+`D2/EMTEQRAP15` is a genuine outlier (22 of 23 bites missed) —
 worth investigating separately (e.g. a low-signal recording, or a
 participant whose eating style the model generalizes to poorly) rather
 than averaged away; not pursued further in this document.
@@ -635,7 +635,7 @@ at *inference* time only, zero out one modality's channels
 80/10/10 test split, pooled: all-channels bout IoU F1 0.772; **nav-only
 0.767** (barely different — nav carries almost all the signal this model
 actually uses); **accel-only: exactly 0 predicted bouts**, in every
-condition tested (10 dataset×model runs + 2 on the `s11_feit_eating`
+condition tested (10 dataset×model runs + 2 on the `D6`
 cohort, §11.3). Read at face value this looks like "the model can't detect
 chewing from accelerometer alone" — **that reading is wrong**, and the next
 round shows why: the postprocessing hysteresis threshold (0.75) was tuned
@@ -683,12 +683,12 @@ accuracy, accel-only is clearly the weakest channel subset for this
 pipeline (0.635-0.698 vs. 0.694-0.777 for the other configs) but far from
 non-functional.
 
-### 11.3 Generalization: the `s11_feit_eating` cohort — the more important result
+### 11.3 Generalization: the `D6` cohort — the more important result
 
 The native test split can't distinguish "genuinely learned chewing
 dynamics" from "learned this specific recording setup's quirks" — both
 score well on data drawn from the same studies the model trained on. The
-`s11_feit_eating` cohort (878 GT bites, a right-temple-substitute sensor
+`D6` cohort (878 GT bites, a right-temple-substitute sensor
 placement — **explicitly unvalidated**, per that dataset's own note, so
 treat absolute numbers cautiously; the *relative* comparison across these
 12 identically-evaluated models is sound) is the closer thing to a genuine
@@ -782,7 +782,7 @@ would not have surfaced without the s11 comparison.
   into "more training data" vs. "the h96/l3 capacity choice" vs. "the
   masking-strategy change" — three things that all changed simultaneously
   between the ablation baseline and the current best result.
-- `SussexEatingUK/EMTEQRAP15`'s near-total miss rate (§9.4) has not been
+- `D2/EMTEQRAP15`'s near-total miss rate (§9.4) has not been
   investigated — though `docs/uncertainty.md` finding 5 has since narrowed
   down *what's* uninformative there (epistemic uncertainty specifically,
   for the whole recording), if not *why*.

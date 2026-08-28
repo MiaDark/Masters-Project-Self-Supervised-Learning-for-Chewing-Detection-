@@ -16,17 +16,17 @@ glasses:
 
 | Dataset | Role | Recordings |
 |---|---|---|
-| **SIPMEatingStudy** | Bite-level labelled meals | 31 |
-| **SussexEatingUK** | Bite-level labelled meals | 40 |
-| **FEIT_eating_S05** | Bite-level labelled meals | 36 |
-| **Office_eating_s05** | Bite-level labelled meals | 26 |
-| **Spectacle_NonMeal** | Non-eating background | 90 snippets / 22 participants |
+| **D1** | Bite-level labelled meals | 31 |
+| **D2** | Bite-level labelled meals | 40 |
+| **D3** | Bite-level labelled meals | 36 |
+| **D4** | Bite-level labelled meals | 26 |
+| **D5** | Non-eating background | 90 snippets / 22 participants |
 
 The first four are lab/field meal recordings with per-bite chewing
 annotations (~27.3 hours combined). All were self-supervised-training input,
 but the model would have only ever seen *eating* contexts, which might be a real risk,
 since a chewing detector deployed in the real world needs to also recognize
-what *isn't* chewing (talking, walking, resting). **`Spectacle_NonMeal`**
+what *isn't* chewing (talking, walking, resting). **`D5`**
 addresses this: it was built by extracting non-eating time from the dataset, specifically
 excluding every chewing bout (padded ±5 minutes to also exclude pre/post-meal
 handling), drawn round-robin across participants so the result isn't
@@ -34,10 +34,10 @@ dominated by a handful of people, and sized to match the ~27.3 hours of meal
 data.
 
 **Data-integrity groundwork** (reverting the scaling), before any of the above could be trusted:
-three of the five sources (SIPM, Sussex, and the Spectacle data
-`Spectacle_NonMeal` is drawn from) ship pre-scaled by Emteq's own processing
+three of the five sources (D1, D2, and the D5 data
+`D5` is drawn from) ship pre-scaled by Emteq's own processing
 pipeline (divided by fixed hardware calibration constants), while the other
-two (FEIT, Office) are native raw sensor-count magnitude. Left uncorrected,
+two (D3, D4) are native raw sensor-count magnitude. Left uncorrected,
 the *same* channel would carry wildly different numeric ranges depending on
 which dataset a window came from — a model could trivially learn to
 distinguish data source by magnitude rather than genuine sensor semantics.
@@ -64,8 +64,8 @@ Findings that directly shaped the pipeline:
   ends up grounding two independent later choices: the preprocessing
   low-pass filter cutoff, and the segment length used when disrupting
   temporal order during augmentation.
-- **Navigation "RightTemple" is an unreliable channel.** In SIPM it's
-  completely flat in 21 of 31 recordings; in the free-living Spectacle data
+- **Navigation "RightTemple" is an unreliable channel.** In D1 it's
+  completely flat in 21 of 31 recordings; in the free-living D5 data
   it's live in only a handful of files (and absent from the header entirely
   in 15 of 136). By contrast, "LeftTemple" navigation is live in every
   single recording checked, across every dataset. This is why the channel
