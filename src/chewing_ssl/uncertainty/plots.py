@@ -342,7 +342,7 @@ def main() -> None:
     plot_recording_trace(
         args.uncertainty_dir / "ssl_global_all_SussexEatingUK_EMTEQRAP15_segment_00.npz",
         args.out_dir / "04_emteqrap15_trace",
-        title="SussexEatingUK/EMTEQRAP15 -- masked_ssl, global/all (22/23 bites missed, confidently)",
+        title="Self-supervised pipeline, global normalization, all channels (22/23 bites missed, confidently)",
     )
 
     print(f"\nAll figures written to {args.out_dir}/ (.pdf + .png)")
