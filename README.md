@@ -23,8 +23,7 @@ chewing-ssl/
 │   │                                # evaluate_bouts, plot_predictions
 │   ├── ssl/                        # self-supervised pipeline
 │   │   ├── models/                 # encoders, heads, augmentation -- shared across variants
-│   │   ├── masked/                 # variant 1: masked-reconstruction pretraining
-│   │   └── tfc/                    # variants 2 & 3: TF-C and TF-FC contrastive pretraining
+│   │   └── masked/                 # variant 1: masked-reconstruction pretraining
 │   ├── uncertainty/                # MC-Dropout inference
 │   └── energy/                     # per-sensor energy model + trade-off analysis
 └── tests/
