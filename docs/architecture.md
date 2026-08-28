@@ -25,7 +25,7 @@ src/chewing_ssl/
 ## SSL Pretraining Plan Layout
 
 **This section originally described the pre-implementation plan (3 datasets:
-SIPM, Sussex, Spectacle) — corrected below to match what was actually
+D1, D2, D5) — corrected below to match what was actually
 built (5 datasets), verified directly against the live window index
 (`data/processed_80_10_10/index/*.parquet`).** The historical plan is kept
 below in the "Original plan" note for anyone tracing how the scope grew.
@@ -36,9 +36,9 @@ EDA: mean 11.9s, median 10.1s, p5-p95 3.0-27.1s) with the chewing-specific
 detection is the harder, primary task, not a meal/session-level one.
 
 **Data allocation, as actually implemented** (`docs/data.md`,
-`docs/project_summary.md` §1): all five datasets — SIPMEatingStudy,
-SussexEatingUK, FEIT_eating_S05, and Office_eating_s05 (bite-level labelled
-meals) plus Spectacle_NonMeal (a derived non-eating background set, `label=0`
+`docs/project_summary.md` §1): all five datasets — D1,
+D2, D3, and D4 (bite-level labelled
+meals) plus D5 (a derived non-eating background set, `label=0`
 throughout, built specifically to balance the otherwise all-eating-context
 training population) — contribute to **both** pretraining and bite-level
 fine-tune/test, subject-disjointly:
@@ -53,14 +53,14 @@ fine-tune/test, subject-disjointly:
 
 There is currently no separate meal-level transfer-test purpose in the
 implemented pipeline (the original plan's third population) — every
-dataset, including Spectacle_NonMeal, is evaluated at the same bite/window
+dataset, including D5, is evaluated at the same bite/window
 level as the others.
 
-*(Original plan, superseded: pretrain on Spectacle + SIPM/Sussex
-train-split only; bite-level fine-tune/test on SIPM+Sussex only; a
-separate Spectacle meal-level transfer test. FEIT_eating_S05 and
-Office_eating_s05 were added, and Spectacle's role changed from
-"meal-level transfer test" to "Spectacle_NonMeal, a bite-level-comparable
+*(Original plan, superseded: pretrain on D5 + D1/D2
+train-split only; bite-level fine-tune/test on D1+D2 only; a
+separate D5 meal-level transfer test. D3 and
+D4 were added, and D5's role changed from
+"meal-level transfer test" to "D5, a bite-level-comparable
 non-eating contributor," before real training began.)*
 
 ## Data flow
@@ -140,7 +140,7 @@ Implemented in `chewing_ssl.common.data.windowing`.
 3. **It's the source of view diversity for the model to learn from**, and
    the practical reason a modest number of raw recordings turns into a
    pretraining corpus much larger than the recording count alone would
-   suggest -- one long Spectacle segment alone yields thousands of
+   suggest -- one long D5 segment alone yields thousands of
    overlapping windows. **Corrected figure**: the original (60/20/20)
    window index totals 128,205 windows across all five purposes
    (`pretrain_train` 47,345 + `pretrain_val` 4,701 + `finetune_train`
@@ -189,31 +189,31 @@ masked reconstruction and cross-sensor prediction are self-supervised by
 construction (decision 001).
 
 **Subject-disjoint splits and window purposes** (`data/processed/splits.json`):
-computed independently per dataset (SIPM and Spectacle happen to share a
+computed independently per dataset (D1 and D5 happen to share a
 `p01`–`p32`-style participant-naming convention, but they are different
 studies with different physical people -- the split logic and the window
 index both keep `dataset` and `participant` as a joint key throughout, so
 this naming overlap is cosmetic, not a leakage risk).
 
 **Corrected below** — this originally described the pre-implementation
-plan's binary SIPM/Sussex-vs-Spectacle split scheme; the actually-built
+plan's binary D1/D2-vs-D5 split scheme; the actually-built
 pipeline treats all five datasets uniformly (verified directly against
 `data/processed_80_10_10/splits.json`):
 
-- **Every dataset** (SIPMEatingStudy, SussexEatingUK, FEIT_eating_S05,
-  Office_eating_s05, Spectacle_NonMeal), **80/10/10 by participant**,
+- **Every dataset** (D1, D2, D3,
+  D4, D5), **80/10/10 by participant**,
   computed independently per dataset: `train` participants feed both
   `pretrain` and `finetune_train`; `val`/`test` participants feed only
   `finetune_val`/`finetune_test` respectively, and are excluded from
   pretraining entirely -- the conservative reading of decision 003 ("all
   splits subject-disjoint... hold out whole participants") applied to
   pretraining too, not just fine-tuning. Confirmed per-dataset counts
-  (`docs/dissertation_classical_ml_sections.md` §3.1): SIPM 24/3/4, Sussex
-  32/4/4, FEIT 28/3/5, Office 20/2/4, Spectacle_NonMeal 17/2/3.
+  (`docs/dissertation_classical_ml_sections.md` §3.1): D1 24/3/4, D2
+  32/4/4, D3 28/3/5, D4 20/2/4, D5 17/2/3.
 - There is no separate meal-level transfer-test purpose in the current
   pipeline (see the "SSL Pretraining Plan Layout" section above) — the
-  original plan's `pretrain_only`/`meal_test_holdout` Spectacle-specific
-  purposes and the 60/20/20 SIPM/Sussex ratio are both superseded.
+  original plan's `pretrain_only`/`meal_test_holdout` D5-specific
+  purposes and the 60/20/20 D1/D2 ratio are both superseded.
 
 ## Reproducibility
 

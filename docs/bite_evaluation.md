@@ -437,7 +437,7 @@ the last decimal), and all 130 tests still pass.
   it identifies the *opportunity* (27.3% of bites caught by exactly one
   pipeline) but no combination rule (e.g. union of both pipelines'
   detections, or a learned meta-classifier) has been built or evaluated.
-- **`SussexEatingUK/EMTEQRAP15`'s near-total SSL miss rate** (22 of 23
+- **`D2/EMTEQRAP15`'s near-total SSL miss rate** (22 of 23
   bites missed, `docs/ssl_masked.md` §9.4) — checked directly against
   `checkpoints/ml_bout_ledger_80_10_10.csv` (re-verified: 23 GT bites total,
   11 `detected`/12 `missed`, exact match): classical ML detects 11 of the

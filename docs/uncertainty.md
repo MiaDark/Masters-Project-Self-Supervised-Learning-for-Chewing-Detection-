@@ -172,7 +172,7 @@ correctly. `model_grid.py` and `summary.csv` are now fixed to match, at 0.751 �
    better ECE for SSL; per-file norm gives better ECE for the Random Forest (comparing the two
    all-channel rows). "Which normalization is better" isn't answerable independent of which
    model is being deployed.
-5. `SussexEatingUK/EMTEQRAP15` (already flagged in `docs/ssl_masked.md` §11 as an unexplained
+5. `D2/EMTEQRAP15` (already flagged in `docs/ssl_masked.md` §11 as an unexplained
    near-total miss, 22/23 bites) — the trace plot (Fig. 4, §8) shows this is *not* "confidently
    predicting non-chewing": the mean probability does rise during most ground-truth bouts,
    to 0.6-0.85, and total uncertainty (entropy) tracks those rises correctly. What's actually

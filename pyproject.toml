@@ -42,6 +42,14 @@ where = ["src"]
 line-length = 100
 target-version = "py310"
 
+[tool.bandit]
+skips = [
+    "B311",  # random.Random(seed): deterministic dataset-split shuffling, never security/crypto use
+    "B404",  # subprocess import: only used by the orchestration scripts below (B603)
+    "B603",  # subprocess.run([sys.executable, "-m", *args]): args are hardcoded internal
+             # config (model_grid.py), never untrusted/external input
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

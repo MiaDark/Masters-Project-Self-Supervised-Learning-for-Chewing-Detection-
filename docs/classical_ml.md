@@ -409,7 +409,7 @@ gap-filling stops bridging distinct bouts." **Measured effect: zero.**
 Sweeping `--post-max-gap` from 0.2s to 1.0s produces byte-identical
 results at every value. Digging into why (`chewing_ssl.classical_ml.
 evaluate_bouts.load_recordings`'s raw probability trace for the biggest
-merged bout in a representative recording, `SussexEatingUK/EMTEQRAP13`):
+merged bout in a representative recording, `D2/EMTEQRAP13`):
 a 170-second span that hysteresis alone (`fill_gaps` never even runs)
 already treats as one continuous bout, because the probability **never
 drops below 0.37** anywhere in that span — it plateaus around 0.6-0.7 for
@@ -514,7 +514,7 @@ package's global `--post-high`/`--post-low`/`--envelope-prominence`/
 2s windows are now ahead on tolerance-mode F1 (0.551 vs. 0.512) and close
 behind on IoU-mode F1 (0.743 vs. 0.763, within noise of each other given
 neither config has had a window-size-specific hyperparameter sweep). On
-`SIPMEatingStudy/p01` specifically (a visual reference point, already a
+`D1/p01` specifically (a visual reference point, already a
 good recording): 33/40 GT bouts detected under the original defaults →
 38/40 (1 false alarm) under 2s windows + re-tuned postprocessing.
 
