@@ -80,7 +80,7 @@ def load_finetuned_model(path: Path) -> tuple[ChewingDetector, dict]:
     """Load a finetune.py checkpoint, auto-detecting architecture/embedding_dim/
     head shape from the metadata finetune.py stamps into every checkpoint.
     Requires the new checkpoint format (see finetune.py's load_pretrained_encoder)."""
-    state = torch.load(path, map_location="cpu", weights_only=False)
+    state = torch.load(path, map_location="cpu", weights_only=False)  # nosec B614
     required = ("architecture", "embedding_dim", "model_state_dict")
     missing = [k for k in required if k not in state]
     if missing:

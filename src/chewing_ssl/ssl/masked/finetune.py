@@ -121,8 +121,9 @@ def load_pretrained_encoder(path: Path) -> tuple[nn.Module, dict]:
     architecture/model_kwargs from the metadata pretrain.py now stamps into
     every checkpoint (architecture, pretext_task, window_len, model_kwargs).
     Requires the new checkpoint format -- checkpoints from before this
-    metadata existed need to be regenerated (see docs/ssl_masked.md)."""
-    state = torch.load(path, map_location="cpu", weights_only=False)
+    metadata existed need to be regenerated (see docs/ssl_masked.md). weights_only=False:
+    checkpoints bundle non-tensor metadata; locally generated only, never untrusted input."""
+    state = torch.load(path, map_location="cpu", weights_only=False)  # nosec B614
     missing = [k for k in ("architecture", "model_state_dict") if k not in state]
     if missing:
         raise ValueError(
@@ -573,7 +574,7 @@ def main() -> None:
         # ── Final test evaluation ──
         print(f"{'─' * 60}")
         print("  Loading best checkpoint for test evaluation ...")
-        best_state = torch.load(best_ckpt, map_location="cpu", weights_only=False)
+        best_state = torch.load(best_ckpt, map_location="cpu", weights_only=False)  # nosec B614 (own checkpoint, not external input)
         model.load_state_dict(best_state["model_state_dict"])
         print(
             f"  Best model: phase={best_state['phase']}  epoch={best_state['epoch'] + 1}  "
